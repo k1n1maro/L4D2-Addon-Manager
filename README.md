@@ -1,4 +1,4 @@
-# 🎮 L4D2 Addon Manager
+# 🎮 L4D2 Addon Manager - Left 4 Dead 2 Mod Manager
 
 <div align="center">
 
@@ -7,7 +7,9 @@
 ![Downloads](https://img.shields.io/github/downloads/k1n1maro/L4D2-Addon-Manager/total?style=for-the-badge)
 ![License](https://img.shields.io/github/license/k1n1maro/L4D2-Addon-Manager?style=for-the-badge)
 
-**Современный менеджер аддонов для Left 4 Dead 2**
+**Современный менеджер аддонов и модов для Left 4 Dead 2**
+
+`#Left4Dead2` `#L4D2` `#ModManager` `#SteamWorkshop` `#Addons` `#Mods` `#Gaming`
 
 [📥 Скачать](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest) • [🐛 Сообщить об ошибке](https://github.com/k1n1maro/L4D2-Addon-Manager/issues) • [💝 Поддержать проект](https://boosty.to/k1n1maro)
 
@@ -22,7 +24,6 @@
 - 🏴‍☠️ **Пиратские моды** - Поддержка модов для пиратских версий
 - ⚡ **Автообновления** - Система автоматических обновлений
 - 🎨 **Красивый интерфейс** - Современный дизайн с анимациями
-- 💝 **Поддержка разработчика** - Встроенные ссылки для доната
 
 ## 🚀 Быстрый старт
 
@@ -76,6 +77,10 @@
 ## 📄 Лицензия
 
 Этот проект распространяется под лицензией MIT. См. [LICENSE](LICENSE) для подробностей.
+
+## 🏷️ Ключевые слова
+
+`Left 4 Dead 2` `L4D2` `Mod Manager` `Addon Manager` `Steam Workshop` `Mods` `Addons` `Gaming` `PyQt6` `Python` `Windows` `Valve` `Source Engine` `Zombie` `Co-op` `Multiplayer`
 
 ---
 
