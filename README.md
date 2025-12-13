@@ -70,7 +70,7 @@
 
 ## 📥 Скачать EXE / Download EXE
 
-[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.2.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.2.0_Fixed.exe)
+[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.2.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.2.0.exe)
 
 **🇷🇺 Размер:** ~50MB | **Установка:** Не требуется  
 **🇺🇸 Size:** ~50MB | **Installation:** Not required
