@@ -18,6 +18,15 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 
+# Импортируем систему локализации
+try:
+    from localization import get_text
+    LOCALIZATION_AVAILABLE = True
+except ImportError:
+    LOCALIZATION_AVAILABLE = False
+    def get_text(key, **kwargs):
+        return key
+
 
 def get_resource_path(filename):
     """Получает правильный путь к ресурсу для скомпилированной и обычной версии"""
@@ -76,13 +85,13 @@ class ModernUpdateWorker(QThread):
         try:
             # Фаза скачивания
             self.current_phase = "download"
-            self.progress_updated.emit(5, "🔄 Подготовка к скачиванию...")
+            self.progress_updated.emit(5, get_text("update_preparing_download"))
             
             temp_dir = Path(tempfile.mkdtemp())
             filename = f"update_v{self.version}.zip"
             temp_file = temp_dir / filename
             
-            self.progress_updated.emit(10, "📥 Скачивание обновления...")
+            self.progress_updated.emit(10, get_text("update_downloading_progress"))
             
             def progress_hook(block_num, block_size, total_size):
                 if self.is_cancelled:
@@ -94,7 +103,7 @@ class ModernUpdateWorker(QThread):
                     mb_total = total_size / (1024 * 1024)
                     self.progress_updated.emit(
                         progress, 
-                        f"📥 Скачано: {mb_downloaded:.1f} MB из {mb_total:.1f} MB"
+                        get_text("update_downloaded_mb", downloaded=mb_downloaded, total=mb_total)
                     )
             
             urlretrieve(self.download_url, temp_file, progress_hook)
@@ -103,7 +112,7 @@ class ModernUpdateWorker(QThread):
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 return
             
-            self.progress_updated.emit(50, "✅ Скачивание завершено")
+            self.progress_updated.emit(50, get_text("update_download_completed"))
             self.download_completed.emit(str(temp_file))
             
             # Фаза установки
@@ -111,12 +120,12 @@ class ModernUpdateWorker(QThread):
             self.install_update(temp_file)
             
         except Exception as e:
-            self.error_occurred.emit(f"Ошибка обновления: {e}")
+            self.error_occurred.emit(get_text("update_error_occurred", error=str(e)))
     
     def install_update(self, update_file):
         """Устанавливает обновление"""
         try:
-            self.progress_updated.emit(55, "🔧 Подготовка к установке...")
+            self.progress_updated.emit(55, get_text("update_preparing_install"))
             
             app_dir = Path(__file__).parent
             backup_dir = app_dir.parent / f"{app_dir.name}_backup"
@@ -125,10 +134,10 @@ class ModernUpdateWorker(QThread):
             if backup_dir.exists():
                 shutil.rmtree(backup_dir)
             
-            self.progress_updated.emit(60, "💾 Создание резервной копии...")
+            self.progress_updated.emit(60, get_text("update_creating_backup"))
             shutil.copytree(app_dir, backup_dir)
             
-            self.progress_updated.emit(70, "📦 Извлечение обновления...")
+            self.progress_updated.emit(70, get_text("update_extracting"))
             
             # Извлекаем во временную папку
             temp_extract_dir = app_dir.parent / "temp_update"
@@ -138,7 +147,7 @@ class ModernUpdateWorker(QThread):
             with zipfile.ZipFile(update_file, 'r') as zip_ref:
                 zip_ref.extractall(temp_extract_dir)
             
-            self.progress_updated.emit(80, "🔄 Установка файлов...")
+            self.progress_updated.emit(80, get_text("update_installing_files"))
             
             # Находим папку с обновлением
             update_source = None
@@ -164,7 +173,7 @@ class ModernUpdateWorker(QThread):
                     elif item.is_dir():
                         shutil.rmtree(item)
             
-            self.progress_updated.emit(90, "📁 Копирование новых файлов...")
+            self.progress_updated.emit(90, get_text("update_copying_files"))
             
             # Копируем новые файлы
             for item in update_source.iterdir():
@@ -178,18 +187,18 @@ class ModernUpdateWorker(QThread):
             if config_backup:
                 config_file.write_text(config_backup, encoding='utf-8')
             
-            self.progress_updated.emit(95, "🧹 Очистка...")
+            self.progress_updated.emit(95, get_text("update_cleaning"))
             
             # Удаляем временные файлы
             shutil.rmtree(temp_extract_dir, ignore_errors=True)
             shutil.rmtree(backup_dir, ignore_errors=True)
             Path(update_file).unlink(missing_ok=True)
             
-            self.progress_updated.emit(100, "🎉 Обновление установлено!")
+            self.progress_updated.emit(100, get_text("update_installed"))
             self.install_completed.emit()
             
         except Exception as e:
-            self.error_occurred.emit(f"Ошибка установки: {e}")
+            self.error_occurred.emit(get_text("update_install_error", error=str(e)))
 
 
 class CustomProgressDialog(QDialog):
@@ -305,7 +314,7 @@ class CustomProgressDialog(QDialog):
         
         # Кнопка отмены (в стиле CustomInfoDialog)
         from l4d2_pyqt_main import AnimatedActionButton
-        self.cancel_btn = AnimatedActionButton("Отмена", "#3498db")
+        self.cancel_btn = AnimatedActionButton(get_text("update_cancel"), "#3498db")
         self.cancel_btn.setFixedSize(140, 50)
         self.cancel_btn.clicked.connect(self.reject)
         container_layout.addWidget(self.cancel_btn, 0, Qt.AlignmentFlag.AlignCenter)
@@ -316,7 +325,7 @@ class CustomProgressDialog(QDialog):
         """Показывает прогресс бар"""
         self.progress_bar.setVisible(True)
         self.status_label.setVisible(True)
-        self.cancel_btn.setText("Отмена")
+        self.cancel_btn.setText(get_text("update_cancel"))
     
     def update_progress(self, value, status_text=""):
         """Обновляет прогресс"""
@@ -368,7 +377,7 @@ class StandardUpdateChecker(QObject):
                     self.show_no_updates_message()
         
         except Exception as e:
-            error_msg = f"Ошибка проверки обновлений: {e}"
+            error_msg = get_text("update_check_error", error=str(e))
             self.check_error.emit(error_msg)
             if not silent:
                 self.show_error_message()
@@ -392,12 +401,8 @@ class StandardUpdateChecker(QObject):
         from l4d2_pyqt_main import CustomInfoDialog
         CustomInfoDialog.information(
             self.parent_widget,
-            "Обновления",
-            f'<div style="text-align: center; color: white;">'
-            f'У вас установлена последняя версия программы.<br><br>'
-            f'<b>Текущая версия:</b> {CURRENT_VERSION}<br><br>'
-            f'Проверка обновлений выполнена успешно.'
-            f'</div>',
+            get_text("update_no_updates_title"),
+            get_text("update_no_updates_message", version=CURRENT_VERSION),
             icon_type="success"
         )
     
@@ -406,15 +411,8 @@ class StandardUpdateChecker(QObject):
         from l4d2_pyqt_main import CustomInfoDialog
         CustomInfoDialog.information(
             self.parent_widget,
-            "Ошибка проверки обновлений",
-            '<div style="text-align: center; color: white;">'
-            'Не удалось проверить наличие обновлений.<br><br>'
-            '<b>Возможные причины:</b><br>'
-            '• Отсутствует подключение к интернету<br>'
-            '• Проблемы с доступом к GitHub<br>'
-            '• Временные технические неполадки<br><br>'
-            'Попробуйте повторить проверку позже.'
-            '</div>',
+            get_text("update_check_error_title"),
+            get_text("update_check_error_message"),
             icon_type="error"
         )
 
@@ -423,15 +421,16 @@ def show_update_available_dialog(parent, version_info):
     from l4d2_pyqt_main import CustomInfoDialog
     
     # Формируем информацию о версии
-    new_version = version_info.get('tag_name', 'Неизвестно')
+    new_version = version_info.get('tag_name', get_text("unknown"))
     release_date = version_info.get('published_at', '')
+    release_date_formatted = ''
     if release_date:
         from datetime import datetime
         try:
             date_obj = datetime.fromisoformat(release_date.replace('Z', '+00:00'))
-            release_date = date_obj.strftime('%d.%m.%Y')
+            release_date_formatted = get_text("update_release_date", date=date_obj.strftime('%d.%m.%Y'))
         except:
-            release_date = ''
+            release_date_formatted = ''
     
     # Описание изменений
     changes = version_info.get('body', '')
@@ -441,27 +440,31 @@ def show_update_available_dialog(parent, version_info):
             changes = changes[:300] + '...'
         changes = changes.replace('\n', '<br>')
     else:
-        changes = 'Информация об изменениях недоступна.'
+        changes = get_text("update_changes_unavailable")
+    
+    # КРИТИЧНО: Специальное предупреждение для v1.1.0
+    warning_message = ""
+    if CURRENT_VERSION == "1.1.0":
+        warning_message = '<div style="background: #e74c3c; padding: 15px; border-radius: 8px; margin-bottom: 15px; color: white; font-weight: bold;">' \
+                         '🚨 ВАЖНО: Система обновлений в v1.1.0 СЛОМАНА!<br>' \
+                         'Автоматическое обновление НЕ РАБОТАЕТ!<br><br>' \
+                         'Вы ДОЛЖНЫ скачать v1.2.0 ВРУЧНУЮ с GitHub:<br>' \
+                         '<a href="https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest" style="color: white; text-decoration: underline;">GitHub Releases</a><br><br>' \
+                         '🚨 IMPORTANT: Update system in v1.1.0 is BROKEN!<br>' \
+                         'Automatic update DOES NOT WORK!<br><br>' \
+                         'You MUST download v1.2.0 MANUALLY from GitHub:<br>' \
+                         '<a href="https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest" style="color: white; text-decoration: underline;">GitHub Releases</a>' \
+                         '</div>'
     
     # Формируем сообщение
-    message = f'''<div style="text-align: center; color: white;">
-        <b>Доступна новая версия программы!</b><br><br>
-        
-        <b>Новая версия:</b> {new_version}<br>
-        <b>Текущая версия:</b> {CURRENT_VERSION}<br>
-        {f'<b>Дата выпуска:</b> {release_date}<br>' if release_date else ''}
-        <br>
-        
-        <b>Что нового:</b><br>
-        <div style="text-align: left; margin: 10px 0; padding: 10px; background: rgba(52, 152, 219, 0.1); border-radius: 8px;">
-        {changes}
-        </div>
-        
-        Хотите скачать и установить обновление?
-    </div>'''
+    message = warning_message + get_text("update_available_message", 
+                      new_version=new_version, 
+                      current_version=CURRENT_VERSION,
+                      release_date=release_date_formatted,
+                      changes=changes)
     
     # Создаем диалог с кнопками
-    dialog = CustomUpdateConfirmDialog(parent, "Доступно обновление", message, version_info)
+    dialog = CustomUpdateConfirmDialog(parent, get_text("update_available_title"), message, version_info)
     return dialog.exec()
 
 
@@ -561,13 +564,13 @@ class CustomUpdateConfirmDialog(QDialog):
         from l4d2_pyqt_main import AnimatedActionButton
         
         # Кнопка "Скачать и установить"
-        self.update_btn = AnimatedActionButton("Скачать и установить", "#3498db")
+        self.update_btn = AnimatedActionButton(get_text("update_btn_download"), "#3498db")
         self.update_btn.setFixedSize(200, 50)
         self.update_btn.clicked.connect(self.accept_update)
         buttons_layout.addWidget(self.update_btn)
         
         # Кнопка "Позже"
-        self.later_btn = AnimatedActionButton("Позже", "#7f8c8d")
+        self.later_btn = AnimatedActionButton(get_text("update_btn_later"), "#7f8c8d")
         self.later_btn.setFixedSize(140, 50)
         self.later_btn.clicked.connect(self.reject_update)
         buttons_layout.addWidget(self.later_btn)
@@ -600,22 +603,26 @@ class CustomUpdateConfirmDialog(QDialog):
 def start_update_process(parent, version_info):
     """Запускает процесс обновления с CustomProgressDialog"""
     
-    # Получаем ссылку на скачивание
+    # Получаем ссылку на скачивание (ищем EXE файл)
     download_url = None
     for asset in version_info.get('assets', []):
-        if asset['name'].endswith('.zip'):
+        if asset['name'].endswith('.exe') and 'L4D2_Addon_Manager' in asset['name']:
             download_url = asset['browser_download_url']
             break
+    
+    # Если EXE не найден, ищем ZIP
+    if not download_url:
+        for asset in version_info.get('assets', []):
+            if asset['name'].endswith('.zip'):
+                download_url = asset['browser_download_url']
+                break
     
     if not download_url:
         from l4d2_pyqt_main import CustomInfoDialog
         CustomInfoDialog.information(
             parent,
-            "Ошибка обновления",
-            '<div style="text-align: center; color: white;">'
-            'Не удалось найти файл обновления.<br><br>'
-            'Попробуйте скачать обновление вручную с GitHub.'
-            '</div>',
+            get_text("update_error"),
+            get_text("update_no_download_url"),
             icon_type="error"
         )
         return
@@ -623,8 +630,8 @@ def start_update_process(parent, version_info):
     # Создаем диалог прогресса
     progress_dialog = CustomProgressDialog(
         parent,
-        "Обновление программы",
-        "Подготовка к загрузке обновления..."
+        get_text("update_title"),
+        get_text("update_preparing_message")
     )
     
     # Создаем worker для загрузки
@@ -647,7 +654,7 @@ def start_update_process(parent, version_info):
 
 def on_download_completed(progress_dialog, file_path):
     """Обработка завершения загрузки"""
-    progress_dialog.update_progress(100, "Загрузка завершена. Начинается установка...")
+    progress_dialog.update_progress(100, get_text("update_download_completed") + ". " + get_text("update_installing"))
 
 
 def on_install_completed(progress_dialog, parent):
@@ -657,12 +664,8 @@ def on_install_completed(progress_dialog, parent):
     from l4d2_pyqt_main import CustomInfoDialog
     CustomInfoDialog.information(
         parent,
-        "Обновление завершено",
-        '<div style="text-align: center; color: white;">'
-        'Обновление успешно установлено!<br><br>'
-        'Для применения изменений необходимо перезапустить программу.<br><br>'
-        '<b>Перезапустить сейчас?</b>'
-        '</div>',
+        get_text("update_completed_restart_title"),
+        get_text("update_completed_restart_message"),
         icon_type="success"
     )
 
@@ -674,11 +677,7 @@ def on_update_error(progress_dialog, parent, error_message):
     from l4d2_pyqt_main import CustomInfoDialog
     CustomInfoDialog.information(
         parent,
-        "Ошибка обновления",
-        f'<div style="text-align: center; color: white;">'
-        f'Произошла ошибка при обновлении:<br><br>'
-        f'<b>{error_message}</b><br><br>'
-        f'Попробуйте повторить попытку позже или скачайте обновление вручную с GitHub.'
-        f'</div>',
+        get_text("update_error_final_title"),
+        get_text("update_error_final_message", error=error_message),
         icon_type="error"
     )

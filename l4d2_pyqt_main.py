@@ -9,6 +9,7 @@ import json
 import shutil
 import re
 import os
+import random
 from pathlib import Path
 from html import escape
 from PyQt6.QtWidgets import *
@@ -87,13 +88,13 @@ class AddonScanWorker(QThread):
     def run(self):
         """Выполняется в отдельном потоке"""
         try:
-            self.progress_updated.emit(10, "Сканирование папки...")
+            self.progress_updated.emit(10, get_text("scanning_folder"))
             print(f"🔍 AddonScanWorker: Scanning {self.workshop_path}")
             print(f"🔍 Workshop path exists: {self.workshop_path.exists()}")
             
             if not self.workshop_path.exists():
                 print(f"❌ Workshop path does not exist!")
-                self.scan_error.emit(f"Папка не существует: {self.workshop_path}")
+                self.scan_error.emit(f"Folder does not exist: {self.workshop_path}")
                 return
             
             # Собираем информацию об аддонах
@@ -108,7 +109,7 @@ class AddonScanWorker(QThread):
                 if addon_id.isdigit():
                     addons_dict[addon_id] = {'vpk': vpk_file, 'folder': False}
             
-            self.progress_updated.emit(20, f"Найдено VPK файлов: {len(addons_dict)}")
+            self.progress_updated.emit(20, get_text("found_vpk_files", count=len(addons_dict)))
             
             # Ищем папки с ID
             addon_folders = [f for f in self.workshop_path.iterdir() if f.is_dir() and f.name.isdigit()]
@@ -123,7 +124,7 @@ class AddonScanWorker(QThread):
                     # Есть только папка без vpk файла - добавляем как выключенный
                     addons_dict[addon_id] = {'vpk': None, 'folder': True}
             
-            self.progress_updated.emit(30, f"Найдено аддонов: {len(addons_dict)}")
+            self.progress_updated.emit(30, get_text("found_addons", count=len(addons_dict)))
             print(f"🔍 Total addons found: {len(addons_dict)}")
             
             # Создаем список аддонов
@@ -134,14 +135,14 @@ class AddonScanWorker(QThread):
                 
                 addon_data = {
                     'id': addon_id,
-                    'name': f'Аддон {addon_id}',
-                    'description': 'Загрузка...',
+                    'name': get_text("addon_default_name", id=addon_id),
+                    'description': get_text("loading_addon"),
                     'enabled': is_enabled,
                     'path': data['vpk'] if data['vpk'] else self.workshop_path / addon_id
                 }
                 addons.append(addon_data)
             
-            self.progress_updated.emit(40, "Сканирование завершено")
+            self.progress_updated.emit(40, get_text("scan_completed"))
             self.scan_completed.emit(addons)
             
         except Exception as e:
@@ -164,7 +165,7 @@ class SteamInfoWorker(QThread):
                 self.info_loaded.emit(self.addons)
                 return
             
-            self.progress_updated.emit(50, "Загрузка информации из Steam...")
+            self.progress_updated.emit(50, get_text("loading_steam_info"))
             
             # Формируем запрос для всех аддонов
             addon_ids = [addon['id'] for addon in self.addons]
@@ -174,7 +175,7 @@ class SteamInfoWorker(QThread):
             max_batch_size = 50
             if len(addon_ids) > max_batch_size:
                 addon_ids = addon_ids[:max_batch_size]
-                self.progress_updated.emit(55, f"Обрабатываем первые {max_batch_size} аддонов...")
+                self.progress_updated.emit(55, get_text("processing_first_addons", count=max_batch_size))
             
             # Формируем POST данные
             post_data = {'itemcount': len(addon_ids)}
@@ -185,16 +186,24 @@ class SteamInfoWorker(QThread):
             import urllib.parse
             data = urllib.parse.urlencode(post_data).encode('utf-8')
             
-            self.progress_updated.emit(60, "Отправка запроса к Steam API...")
+            self.progress_updated.emit(60, get_text("sending_steam_request"))
             
             # Делаем запрос с увеличенным таймаутом и обработкой ошибок
             try:
                 response = urlopen(STEAM_API_URL, data=data, timeout=15)
                 result = json.loads(response.read().decode('utf-8'))
-                self.progress_updated.emit(70, "Обработка ответа от Steam...")
+                self.progress_updated.emit(70, get_text("processing_steam_response"))
             except Exception as api_error:
                 print(f"Ошибка Steam API запроса: {api_error}")
-                self.progress_updated.emit(90, "Steam API недоступен, используем базовые названия...")
+                self.progress_updated.emit(90, get_text("steam_api_unavailable"))
+                
+                # Устанавливаем базовые названия для всех аддонов
+                for addon in self.addons:
+                    if not addon.get('name') or addon.get('name') == 'Loading...':
+                        addon['name'] = f"Addon {addon['id']}"
+                        addon['description'] = "Steam Workshop addon (details unavailable)"
+                        addon['preview_url'] = ''
+                
                 # Возвращаем аддоны с базовыми названиями
                 self.info_loaded.emit(self.addons)
                 return
@@ -207,7 +216,7 @@ class SteamInfoWorker(QThread):
                     result_code = detail.get('result', 0)
                     
                     if result_code == 1:  # Success
-                        title = detail.get('title', f'Аддон {addon_id}')
+                        title = detail.get('title', get_text("addon_default_name", id=addon_id))
                         description = detail.get('description', '')
                         preview_url = detail.get('preview_url', '')
                         
@@ -225,19 +234,27 @@ class SteamInfoWorker(QThread):
                         # Аддон недоступен
                         for addon in self.addons:
                             if addon['id'] == addon_id:
-                                addon['name'] = f'Аддон {addon_id} (недоступен)'
-                                addon['description'] = 'Этот аддон был удален из Workshop или недоступен'
+                                addon['name'] = get_text("addon_unavailable", id=addon_id)
+                                addon['description'] = get_text("addon_removed_description")
                                 break
                     
                     # Обновляем прогресс
                     progress = 50 + int((idx + 1) / total * 40)
-                    self.progress_updated.emit(progress, f"Загружено: {idx + 1}/{total}")
+                    self.progress_updated.emit(progress, get_text("loaded_progress", current=idx + 1, total=total))
             
-            self.progress_updated.emit(95, "Обновление интерфейса...")
+            self.progress_updated.emit(95, get_text("updating_interface"))
             self.info_loaded.emit(self.addons)
             
         except Exception as e:
             print(f"Ошибка загрузки из Steam API: {e}")
+            
+            # Устанавливаем базовые названия для всех аддонов
+            for addon in self.addons:
+                if not addon.get('name') or addon.get('name') == 'Loading...':
+                    addon['name'] = f"Addon {addon['id']}"
+                    addon['description'] = "Steam Workshop addon (details unavailable)"
+                    addon['preview_url'] = ''
+            
             # Возвращаем аддоны как есть, даже если произошла ошибка
             self.info_loaded.emit(self.addons)
     
@@ -492,7 +509,7 @@ class BlurDialog(QDialog):
         container_layout.addWidget(icon_label)
         
         # Заголовок - ЕДИНЫЙ СТАНДАРТ
-        title_label = QLabel("L4D2 Addon Manager")
+        title_label = QLabel(get_text("app_title"))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
         container_layout.addWidget(title_label)
@@ -504,14 +521,7 @@ class BlurDialog(QDialog):
         container_layout.addWidget(subtitle)
         
         # Описание программы - ЕДИНЫЙ СТАНДАРТ
-        desc = QLabel(
-            "L4D2 Addon Manager - это современный менеджер модов\n"
-            "для Left 4 Dead 2 с красивым интерфейсом и удобным управлением.\n\n"
-            "• Включение/выключение аддонов одним кликом\n"
-            "• Удобная установка модов (для пиратской версии)\n"
-            "• Добавление модов в gameinfo.txt для загрузки на серверах\n"
-            "• Скачивание модов/коллекций напрямую из Steam Workshop по ссылке"
-        )
+        desc = QLabel(get_text("welcome_message"))
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 13px; color: white; line-height: 1.6;")
@@ -521,7 +531,7 @@ class BlurDialog(QDialog):
         container_layout.addSpacing(20)
         
         # Кнопка "Начать"
-        btn = AnimatedActionButton("Начать", None)
+        btn = AnimatedActionButton(get_text("welcome_btn_start"), None)
         btn.setFixedSize(140, 50)
         btn.clicked.connect(self.accept_dialog)
         btn.setStyleSheet("""
@@ -664,17 +674,13 @@ class SetupDialog(QDialog):
         container_layout.addWidget(icon_label)
         
         # Заголовок - ЕДИНЫЙ СТАНДАРТ
-        title = QLabel("Настройка")
+        title = QLabel(get_text("setup_title"))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
         container_layout.addWidget(title)
         
         # Описание - ЕДИНЫЙ СТАНДАРТ
-        desc = QLabel(
-            "Для начала работы укажите папку с игрой Left 4 Dead 2.\n\n"
-            "Обычно это:\n"
-            "...\\Steam\\steamapps\\common\\Left 4 Dead 2"
-        )
+        desc = QLabel(get_text("setup_description"))
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 13px; color: white;")
@@ -683,7 +689,7 @@ class SetupDialog(QDialog):
         container_layout.addSpacing(10)
         
         # Кнопка выбора (без смайлика)
-        btn = AnimatedActionButton("Выбрать папку", None)
+        btn = AnimatedActionButton(get_text("btn_browse_folder"), None)
         btn.setFixedSize(180, 50)
         btn.clicked.connect(self.browse_folder)
         container_layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignCenter)
@@ -694,7 +700,7 @@ class SetupDialog(QDialog):
         """Выбор папки с игрой"""
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Выберите папку Left 4 Dead 2",
+            get_text("select_l4d2_folder"),
             str(Path.home())
         )
         if folder:
@@ -735,10 +741,8 @@ class SetupDialog(QDialog):
         # Показываем кастомный диалог ошибки
         CustomInfoDialog.information(
             self.parent_widget,
-            "Неверная папка",
-            "Выбранная папка не содержит Left 4 Dead 2.\n\n"
-            "Убедитесь что выбрали папку:\n"
-            "steamapps/common/Left 4 Dead 2",
+            get_text("invalid_folder_title"),
+            get_text("invalid_folder_message"),
             use_existing_blur=True,  # Используем существующий blur
             icon_type="error"
         )
@@ -974,7 +978,7 @@ class AnimatedSortComboBox(QPushButton):
         super().__init__(parent)
         self.setObjectName("sortCombo")
         self.setFixedSize(45, 45)
-        self.setToolTip("Сортировка")
+        self.setToolTip(get_text("sort_tooltip"))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self.current_index = 0
@@ -1028,7 +1032,7 @@ class AnimatedSortComboBox(QPushButton):
         self.menu_scale.setEasingCurve(QEasingCurve.Type.OutCubic)  # Более плавная кривая без отскока
         
         self.actions = []
-        options = ["По алфавиту", "Сначала включенные", "Сначала выключенные"]
+        options = [get_text("sort_alphabetical"), get_text("sort_enabled_first"), get_text("sort_disabled_first")]
         for i, text in enumerate(options):
             action = self.menu.addAction(text)
             action.setCheckable(True)
@@ -1279,7 +1283,7 @@ class AnimatedViewToggleButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("viewToggle")
         self.setFixedSize(45, 45)
-        self.setToolTip("Переключить вид: 1/2 столбца")
+        self.setToolTip(get_text("tooltip_view_toggle"))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self.is_two_columns = False  # По умолчанию 1 столбец
@@ -1361,7 +1365,7 @@ class AnimatedClearButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("clearSearchBtn")
         self.setFixedSize(40, 40)
-        self.setToolTip("Очистить поиск")
+        self.setToolTip(get_text("clear_search_tooltip"))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Инициализируем rotation ДО создания анимации
@@ -1425,7 +1429,7 @@ class AnimatedRefreshButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("refreshBtn")
         self.setFixedSize(45, 45)
-        self.setToolTip("Обновить список")
+        self.setToolTip(get_text("btn_refresh"))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Инициализируем rotation ДО создания анимации
@@ -1653,7 +1657,7 @@ class AnimatedTrashButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("trashBtn")
         self.setFixedSize(30, 30)  # Круглая кнопка 30x30 (высота toggle)
-        self.setToolTip("Удалить мод")
+        self.setToolTip(get_text("tooltip_delete_mod"))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Инициализируем scale для анимации
@@ -1870,6 +1874,334 @@ class AnimatedActionButton(QPushButton):
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
 
 
+class FallingHeart(QWidget):
+    """Падающее сердечко для анимации доната"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setFixedSize(20, 20)
+        
+        # Начинаем с полной прозрачности для плавного появления
+        self.setWindowOpacity(0.0)
+        
+        # Загружаем новую иконку сердечка и создаем версию с обводкой
+        self.heart_pixmap = None
+        self.heart_outline_pixmap = None
+        heart_path = get_resource_path("heart.png")
+        if heart_path.exists():
+            pixmap = QPixmap(str(heart_path))
+            if not pixmap.isNull():
+                # Масштабируем оригинальную иконку
+                original_scaled = pixmap.scaled(18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                
+                # Создаем синюю версию
+                blue_pixmap = QPixmap(original_scaled.size())
+                blue_pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(blue_pixmap)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                painter.drawPixmap(0, 0, original_scaled)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                painter.fillRect(blue_pixmap.rect(), QColor(52, 152, 219))  # Синий цвет #3498db
+                painter.end()
+                
+                # Создаем черную обводку
+                outline_pixmap = QPixmap(original_scaled.size())
+                outline_pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(outline_pixmap)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                painter.drawPixmap(0, 0, original_scaled)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                painter.fillRect(outline_pixmap.rect(), QColor(0, 0, 0))  # Черная обводка
+                painter.end()
+                
+                self.heart_pixmap = blue_pixmap
+                self.heart_outline_pixmap = outline_pixmap
+        
+        # Если не удалось загрузить, используем текстовое сердечко
+        if not self.heart_pixmap:
+            self.heart_text = "💙"
+        else:
+            self.heart_text = None
+    
+    def paintEvent(self, event):
+        """Рисуем сердечко с черной обводкой"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        
+        if self.heart_pixmap and self.heart_outline_pixmap:
+            # Центрируем сердечко
+            x = (self.width() - self.heart_pixmap.width()) // 2
+            y = (self.height() - self.heart_pixmap.height()) // 2
+            
+            # Сначала рисуем черную обводку в нескольких позициях для эффекта outline
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    if dx != 0 or dy != 0:  # Не рисуем в центре
+                        painter.drawPixmap(x + dx, y + dy, self.heart_outline_pixmap)
+            
+            # Затем рисуем синее сердечко поверх
+            painter.drawPixmap(x, y, self.heart_pixmap)
+        else:
+            # Fallback: рисуем текстовое сердечко с обводкой
+            painter.setPen(QPen(QColor(0, 0, 0), 2))  # Черная обводка
+            font = painter.font()
+            font.setPointSize(16)
+            painter.setFont(font)
+            
+            # Рисуем обводку
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    if dx != 0 or dy != 0:
+                        painter.drawText(self.rect().adjusted(dx, dy, dx, dy), Qt.AlignmentFlag.AlignCenter, self.heart_text)
+            
+            # Рисуем синий текст поверх
+            painter.setPen(QColor(52, 152, 219))  # #3498db
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.heart_text)
+
+
+class AnimatedDonateButton(QPushButton):
+    """Кнопка доната с анимацией падающих сердечек при наведении"""
+    
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setObjectName("donateButton")
+        self.setFixedHeight(40)
+        
+        # Список активных сердечек
+        self.falling_hearts = []
+        
+        # Список занятых позиций для избежания наложения
+        self.occupied_positions = []
+        
+        # Список всех когда-либо созданных сердечек для принудительной очистки
+        self.all_created_hearts = []
+        
+        # Таймер для создания новых сердечек
+        self.heart_timer = QTimer()
+        self.heart_timer.timeout.connect(self.create_falling_heart)
+        
+        # Загружаем и устанавливаем иконку sup.png (белую)
+        sup_icon_path = get_resource_path("sup.png")
+        if sup_icon_path.exists():
+            pixmap = QPixmap(str(sup_icon_path))
+            if not pixmap.isNull():
+                # Масштабируем до 20x20 для кнопки
+                scaled_pixmap = pixmap.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                
+                # Перекрашиваем в белый цвет
+                white_pixmap = QPixmap(scaled_pixmap.size())
+                white_pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(white_pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                painter.drawPixmap(0, 0, scaled_pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                painter.fillRect(white_pixmap.rect(), QColor(255, 255, 255))
+                painter.end()
+                
+                icon = QIcon(white_pixmap)
+                self.setIcon(icon)
+                self.setIconSize(QSize(20, 20))
+    
+    def enterEvent(self, event):
+        """При наведении - запускаем анимацию падающих сердечек"""
+        super().enterEvent(event)
+        # Запускаем создание сердечек каждые 300ms (реже чем было)
+        self.heart_timer.start(300)
+    
+    def leaveEvent(self, event):
+        """При уходе мыши - останавливаем создание новых сердечек и плавно убираем существующие"""
+        super().leaveEvent(event)
+        self.heart_timer.stop()
+        # Плавно убираем все существующие сердечки
+        self.fade_out_all_hearts()
+    
+    def create_falling_heart(self):
+        """Создает новое падающее сердечко без наложения"""
+        if not self.parent():
+            return
+        
+        # Ограничиваем количество сердечек для предотвращения утечек памяти
+        if len(self.falling_hearts) >= 6:
+            print("⚠️ Maximum hearts limit reached, skipping creation")
+            return
+        
+        # Создаем сердечко
+        heart = FallingHeart(self.parent())
+        
+        # Позиционируем над кнопкой, избегая наложения
+        button_rect = self.geometry()
+        max_attempts = 10
+        start_x = None
+        start_y = button_rect.y() - 10
+        
+        # Пытаемся найти свободную позицию
+        for attempt in range(max_attempts):
+            test_x = button_rect.x() + random.randint(0, max(0, button_rect.width() - 25))
+            
+            # Проверяем что позиция не занята (минимальное расстояние 25px)
+            position_free = True
+            for occupied_x in self.occupied_positions:
+                if abs(test_x - occupied_x) < 25:
+                    position_free = False
+                    break
+            
+            if position_free:
+                start_x = test_x
+                break
+        
+        # Если не нашли свободную позицию, используем случайную
+        if start_x is None:
+            start_x = button_rect.x() + random.randint(0, max(0, button_rect.width() - 25))
+        
+        # Добавляем позицию в занятые
+        self.occupied_positions.append(start_x)
+        
+        heart.move(start_x, start_y)
+        heart.show()
+        
+        # Анимация плавного появления
+        fade_in_anim = QPropertyAnimation(heart, b"windowOpacity")
+        fade_in_anim.setDuration(300)  # Плавное появление за 0.3 секунды
+        fade_in_anim.setStartValue(0.0)
+        fade_in_anim.setEndValue(1.0)
+        fade_in_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+        
+        # Анимация падения
+        fall_anim = QPropertyAnimation(heart, b"pos")
+        fall_anim.setDuration(2000)  # 2 секунды падения
+        fall_anim.setStartValue(QPoint(start_x, start_y))
+        fall_anim.setEndValue(QPoint(start_x + random.randint(-30, 30), start_y + 200))  # Падает вниз с небольшим отклонением
+        fall_anim.setEasingCurve(QEasingCurve.Type.InQuad)
+        
+        # Анимация плавного исчезновения (начинается через 1.5 сек)
+        fade_out_anim = QPropertyAnimation(heart, b"windowOpacity")
+        fade_out_anim.setDuration(500)  # Плавное исчезновение за 0.5 секунды
+        fade_out_anim.setStartValue(1.0)
+        fade_out_anim.setEndValue(0.0)
+        fade_out_anim.setEasingCurve(QEasingCurve.Type.InQuad)
+        
+        # Группируем анимации падения и исчезновения (параллельно)
+        fall_fade_group = QParallelAnimationGroup()
+        fall_fade_group.addAnimation(fall_anim)
+        fall_fade_group.addAnimation(fade_out_anim)
+        
+        # Последовательная группа: сначала появление, потом падение+исчезновение
+        anim_sequence = QSequentialAnimationGroup()
+        anim_sequence.addAnimation(fade_in_anim)
+        anim_sequence.addAnimation(fall_fade_group)
+        
+        # Безопасное удаление сердечка после анимации
+        anim_sequence.finished.connect(lambda: self.cleanup_heart(heart, start_x))
+        
+        # Сохраняем ссылку на анимацию в сердечке для возможности остановки
+        heart.animation_sequence = anim_sequence
+        
+        # Добавляем в списки и запускаем
+        self.falling_hearts.append(heart)
+        self.all_created_hearts.append(heart)  # Глобальный список для принудительной очистки
+        anim_sequence.start()
+    
+    def __del__(self):
+        """Деструктор - очищаем все сердечки при удалении кнопки"""
+        try:
+            self.heart_timer.stop()
+            self.force_cleanup_all_hearts()
+            self.falling_hearts.clear()
+            self.occupied_positions.clear()
+        except Exception as e:
+            print(f"❌ Error in AnimatedDonateButton destructor: {e}")
+    
+    def fade_out_all_hearts(self):
+        """НЕМЕДЛЕННО убирает все существующие сердечки при уходе мыши"""
+        print(f"🔄 IMMEDIATELY removing {len(self.falling_hearts)} hearts...")
+        
+        # Создаем копию списка для безопасной итерации
+        hearts_to_remove = self.falling_hearts[:]
+        
+        # НЕМЕДЛЕННО очищаем списки
+        self.falling_hearts.clear()
+        self.occupied_positions.clear()
+        
+        for heart in hearts_to_remove:
+            try:
+                # Останавливаем ВСЕ анимации сердечка
+                if hasattr(heart, 'animation_sequence') and heart.animation_sequence:
+                    heart.animation_sequence.stop()
+                    heart.animation_sequence.deleteLater()
+                    heart.animation_sequence = None
+                    print(f"🛑 Stopped and deleted animation for heart")
+                
+                # НЕМЕДЛЕННО скрываем и удаляем сердечко БЕЗ анимации
+                heart.hide()
+                heart.deleteLater()
+                print(f"💀 Heart immediately deleted")
+                
+            except Exception as e:
+                print(f"❌ Error removing heart: {e}")
+        
+        print("✅ All hearts IMMEDIATELY removed")
+        
+        # ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: принудительно удаляем ВСЕ созданные сердечки
+        self.force_cleanup_all_hearts()
+    
+    def force_cleanup_all_hearts(self):
+        """ПРИНУДИТЕЛЬНО удаляет ВСЕ когда-либо созданные сердечки"""
+        print(f"🚨 FORCE cleanup of {len(self.all_created_hearts)} total hearts...")
+        
+        for heart in self.all_created_hearts[:]:
+            try:
+                if heart and not heart.isHidden():
+                    heart.hide()
+                heart.deleteLater()
+            except Exception as e:
+                print(f"❌ Error in force cleanup: {e}")
+        
+        self.all_created_hearts.clear()
+        print("🚨 FORCE cleanup completed")
+    
+    def safe_delete_heart(self, heart):
+        """Безопасно удаляет сердечко"""
+        try:
+            if heart and not heart.isHidden():
+                heart.hide()
+            heart.deleteLater()
+        except Exception as e:
+            print(f"❌ Error in safe_delete_heart: {e}")
+    
+    def cleanup_heart(self, heart, position_x):
+        """Безопасно удаляет сердечко и освобождает ресурсы"""
+        try:
+            # Удаляем из списка активных сердечек
+            if heart in self.falling_hearts:
+                self.falling_hearts.remove(heart)
+            
+            # Удаляем из глобального списка
+            if heart in self.all_created_hearts:
+                self.all_created_hearts.remove(heart)
+            
+            # Освобождаем позицию
+            if position_x in self.occupied_positions:
+                self.occupied_positions.remove(position_x)
+            
+            # Останавливаем анимацию если она еще идет
+            if hasattr(heart, 'animation_sequence'):
+                heart.animation_sequence.stop()
+                heart.animation_sequence = None
+            
+            # Безопасно удаляем виджет
+            if heart and not heart.isHidden():
+                heart.hide()
+            heart.deleteLater()
+            
+        except Exception as e:
+            print(f"❌ Error in cleanup_heart: {e}")
+
+
 class AnimatedCard(QFrame):
     """Карточка аддона с hover анимацией"""
     toggled = pyqtSignal(dict)
@@ -2045,6 +2377,10 @@ class AnimatedCard(QFrame):
         """При наведении - легкое увеличение"""
         super().enterEvent(event)
         
+        # Проверяем флаг отключения анимаций
+        if hasattr(self.parent_window, 'animations_disabled') and self.parent_window.animations_disabled:
+            return
+        
         if self.original_geometry is None:
             self.original_geometry = self.geometry()
         
@@ -2060,6 +2396,10 @@ class AnimatedCard(QFrame):
         """При уходе мыши - возвращаем к оригиналу"""
         super().leaveEvent(event)
         
+        # Проверяем флаг отключения анимаций
+        if hasattr(self.parent_window, 'animations_disabled') and self.parent_window.animations_disabled:
+            return
+        
         if self.original_geometry is None:
             return
         
@@ -2068,6 +2408,33 @@ class AnimatedCard(QFrame):
         self.scale_anim.setEndValue(self.original_geometry)
         self.scale_anim.start()
     
+    def force_reset_state(self):
+        """Принудительно сбрасывает состояние карточки"""
+        try:
+            # Останавливаем анимацию
+            if hasattr(self, 'scale_anim'):
+                self.scale_anim.stop()
+            
+            # Принудительно возвращаем к оригинальной геометрии
+            if self.original_geometry is not None:
+                self.setGeometry(self.original_geometry)
+            
+            # Сбрасываем original_geometry
+            self.original_geometry = None
+            
+            # Убираем графические эффекты
+            if self.graphicsEffect():
+                self.setGraphicsEffect(None)
+            
+            # Принудительно вызываем leaveEvent
+            fake_leave_event = QEvent(QEvent.Type.Leave)
+            self.leaveEvent(fake_leave_event)
+            
+            # Обновляем виджет
+            self.update()
+            
+        except Exception as e:
+            print(f"❌ Error resetting card state: {e}")
 
 
 class SimpleCopyTooltip(QWidget):
@@ -2084,7 +2451,7 @@ class SimpleCopyTooltip(QWidget):
         layout.setContentsMargins(10, 5, 10, 5)
         
         # Простой текст
-        label = QLabel("✓ Скопировано")
+        label = QLabel(get_text("copied_status"))
         label.setStyleSheet("""
             QLabel {
                 background: rgba(70, 70, 70, 230);
@@ -2410,13 +2777,13 @@ class CustomConfirmDialog(QDialog):
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Кнопка "Да"
-        yes_btn = AnimatedActionButton("Да", "#3498db")
+        yes_btn = AnimatedActionButton(get_text("btn_yes"), "#3498db")
         yes_btn.setFixedSize(140, 50)
         yes_btn.clicked.connect(self.accept_dialog)
         buttons_layout.addWidget(yes_btn)
         
         # Кнопка "Нет"
-        no_btn = AnimatedActionButton("Нет", "#3498db")
+        no_btn = AnimatedActionButton(get_text("btn_no"), "#3498db")
         no_btn.setFixedSize(140, 50)
         no_btn.clicked.connect(self.reject_dialog)
         buttons_layout.addWidget(no_btn)
@@ -2478,6 +2845,155 @@ class CustomConfirmDialog(QDialog):
         dialog = CustomConfirmDialog(parent, title, message, use_existing_blur=use_existing_blur)
         result = dialog.exec()
         return result == QDialog.DialogCode.Accepted
+
+
+class TelegramCommunityDialog(QDialog):
+    """Диалог приглашения в Telegram сообщество в стиле CustomConfirmDialog"""
+    
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.result_value = False
+        self.parent_widget = parent
+        
+        # Настройка окна
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setModal(True)
+        
+        # Применяем блюр к родительскому окну
+        self.blur_effect = QGraphicsBlurEffect()
+        self.blur_effect.setBlurRadius(0)
+        self.parent_widget.setGraphicsEffect(self.blur_effect)
+        
+        # Анимация блюра
+        self.blur_anim = QPropertyAnimation(self.blur_effect, b"blurRadius")
+        self.blur_anim.setDuration(300)
+        self.blur_anim.setStartValue(0)
+        self.blur_anim.setEndValue(15)
+        self.blur_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        
+        # Создаем UI
+        self.setup_ui()
+        
+        # Анимация появления диалога
+        self.setWindowOpacity(0)
+        self.opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.opacity_anim.setDuration(300)
+        self.opacity_anim.setStartValue(0)
+        self.opacity_anim.setEndValue(1)
+        self.opacity_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        
+        # Показываем с анимацией
+        self.show()
+        self.opacity_anim.start()
+        if self.blur_anim:
+            self.blur_anim.start()
+    
+    def setup_ui(self):
+        # Фиксируем размер диалога - ЕДИНЫЙ СТАНДАРТ
+        self.setFixedSize(650, 520)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Контейнер без фона (прозрачный)
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(20)
+        container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Иконка Telegram (tg.png залитая синим цветом) - ЕДИНЫЙ СТАНДАРТ 120x120
+        icon_label = QLabel()
+        icon_path = get_resource_path("tg.png")
+        if icon_path.exists():
+            pixmap = QPixmap(str(icon_path))
+            if not pixmap.isNull():
+                # ЕДИНЫЙ СТАНДАРТ: 120x120
+                scaled_pixmap = pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                
+                # Перекрашиваем в синий цвет #3498db
+                colored_pixmap = QPixmap(scaled_pixmap.size())
+                colored_pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(colored_pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                painter.drawPixmap(0, 0, scaled_pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                painter.fillRect(colored_pixmap.rect(), QColor(52, 152, 219))  # #3498db
+                painter.end()
+                
+                icon_label.setPixmap(colored_pixmap)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        container_layout.addWidget(icon_label)
+        
+        # Заголовок - ЕДИНЫЙ СТАНДАРТ
+        title_label = QLabel(get_text("telegram_community_title"))
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
+        container_layout.addWidget(title_label)
+        
+        # Сообщение - ЕДИНЫЙ СТАНДАРТ
+        message_label = QLabel(get_text("telegram_community_message"))
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        message_label.setWordWrap(True)
+        message_label.setMaximumWidth(580)
+        message_label.setStyleSheet("font-size: 13px; color: white; line-height: 1.5;")
+        message_label.setTextFormat(Qt.TextFormat.RichText)
+        container_layout.addWidget(message_label, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        container_layout.addSpacing(10)
+        
+        # Кнопки - ЕДИНЫЙ СТАНДАРТ
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(20)
+        buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Кнопка "Присоединиться"
+        self.join_btn = AnimatedActionButton(get_text("telegram_btn_join"), "#3498db")
+        self.join_btn.setFixedSize(160, 50)
+        self.join_btn.clicked.connect(self.accept_join)
+        buttons_layout.addWidget(self.join_btn)
+        
+        # Кнопка "Позже"
+        self.later_btn = AnimatedActionButton(get_text("telegram_btn_later"), "#7f8c8d")
+        self.later_btn.setFixedSize(120, 50)
+        self.later_btn.clicked.connect(self.reject_join)
+        buttons_layout.addWidget(self.later_btn)
+        
+        container_layout.addLayout(buttons_layout)
+        layout.addWidget(container)
+    
+    def accept_join(self):
+        """Пользователь согласился присоединиться"""
+        self.result_value = True
+        self.close()
+    
+    def reject_join(self):
+        """Пользователь отказался присоединиться"""
+        self.result_value = False
+        self.close()
+    
+    def exec(self):
+        """Переопределяем exec для возврата результата"""
+        super().exec()
+        return self.result_value
+    
+    def closeEvent(self, event):
+        """Убираем блюр при закрытии"""
+        if hasattr(self, 'blur_effect') and self.parent_widget:
+            self.parent_widget.setGraphicsEffect(None)
+        event.accept()
+    
+    def showEvent(self, event):
+        """Центрируем диалог при показе"""
+        super().showEvent(event)
+        if self.parent_widget:
+            parent_rect = self.parent_widget.geometry()
+            self.move(
+                parent_rect.x() + (parent_rect.width() - self.width()) // 2,
+                parent_rect.y() + (parent_rect.height() - self.height()) // 2
+            )
 
 
 class CustomDeleteDialog(QDialog):
@@ -2582,7 +3098,7 @@ class CustomDeleteDialog(QDialog):
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Кнопка "Удалить" (синяя, без иконки)
-        delete_btn = AnimatedActionButton("Удалить", None)
+        delete_btn = AnimatedActionButton(get_text("btn_delete"), None)
         delete_btn.setFixedSize(140, 50)
         delete_btn.clicked.connect(self.accept_dialog)
         # Переопределяем стиль для синей кнопки
@@ -2609,7 +3125,7 @@ class CustomDeleteDialog(QDialog):
         buttons_layout.addWidget(delete_btn)
         
         # Кнопка "Отмена" (серая)
-        cancel_btn = AnimatedActionButton("Отмена", None)
+        cancel_btn = AnimatedActionButton(get_text("btn_cancel"), None)
         cancel_btn.setFixedSize(140, 50)
         cancel_btn.clicked.connect(self.reject_dialog)
         # Переопределяем стиль для серой кнопки
@@ -3196,7 +3712,7 @@ class CustomInputDialog(QDialog):
         # Поле ввода
         self.input_field = QLineEdit()
         self.input_field.setText(default_text)
-        self.input_field.setPlaceholderText("Введите ссылку или ID...")
+        self.input_field.setPlaceholderText(get_text("input_placeholder"))
         self.input_field.setFixedWidth(550)
         self.input_field.setFixedHeight(45)
         self.input_field.setStyleSheet("""
@@ -3218,7 +3734,7 @@ class CustomInputDialog(QDialog):
         container_layout.addWidget(self.input_field, 0, Qt.AlignmentFlag.AlignCenter)
         
         # Счетчик добавленных ссылок (скрыт по умолчанию)
-        self.links_count_label = QLabel("Добавлено: 0")
+        self.links_count_label = QLabel(get_text("links_added_counter", count=0))
         self.links_count_label.setStyleSheet("color: #808080; font-size: 11px;")
         self.links_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         container_layout.addWidget(self.links_count_label)
@@ -3235,12 +3751,12 @@ class CustomInputDialog(QDialog):
         buttons_layout.addWidget(ok_btn)
         
         # Кнопка "Добавить" между OK и Отмена
-        add_btn = AnimatedActionButton("Добавить", "#27ae60")
+        add_btn = AnimatedActionButton(get_text("btn_add"), "#27ae60")
         add_btn.setFixedSize(140, 50)
         add_btn.clicked.connect(self.add_link_to_list)
         buttons_layout.addWidget(add_btn)
         
-        cancel_btn = AnimatedActionButton("Отмена", "#95a5a6")
+        cancel_btn = AnimatedActionButton(get_text("btn_cancel"), "#95a5a6")
         cancel_btn.setFixedSize(140, 50)
         cancel_btn.clicked.connect(self.reject_dialog)
         buttons_layout.addWidget(cancel_btn)
@@ -3287,7 +3803,7 @@ class CustomInputDialog(QDialog):
     def update_links_count(self):
         """Обновляет счетчик ссылок"""
         count = len(self.addon_links)
-        self.links_count_label.setText(f"Добавлено: {count}")
+        self.links_count_label.setText(get_text("links_added_counter", count=count))
         
     def open_steamcmd_settings(self):
         """Открывает настройки SteamCMD"""
@@ -3448,13 +3964,13 @@ class CustomSteamCMDManageDialog(QDialog):
         container_layout.addWidget(icon_label)
         
         # Заголовок - ЕДИНЫЙ СТАНДАРТ
-        title_label = QLabel("Управление SteamCMD")
+        title_label = QLabel(get_text("steamcmd_management"))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
         container_layout.addWidget(title_label)
         
         # Информация о пути
-        path_label = QLabel(f"Путь установки:\n{self.steamcmd_path}")
+        path_label = QLabel(get_text("installation_path", path=self.steamcmd_path))
         path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         path_label.setWordWrap(True)
         path_label.setStyleSheet("font-size: 11px; color: #808080; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 6px;")
@@ -3463,8 +3979,8 @@ class CustomSteamCMDManageDialog(QDialog):
         
         # Сообщение - ЕДИНЫЙ СТАНДАРТ
         message_label = QLabel(
-            "SteamCMD используется для автоматического скачивания модов из Steam Workshop.\n\n"
-            "Вы можете переустановить его, если возникли проблемы, или удалить, если он больше не нужен."
+            get_text("steamcmd_description") + "\n\n" +
+            get_text("steamcmd_manage_message")
         )
         message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         message_label.setWordWrap(True)
@@ -3477,17 +3993,17 @@ class CustomSteamCMDManageDialog(QDialog):
         buttons_layout.setSpacing(15)
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        reinstall_btn = AnimatedActionButton("Переустановить", "#3498db")
+        reinstall_btn = AnimatedActionButton(get_text("btn_reinstall"), "#3498db")
         reinstall_btn.setFixedSize(140, 50)
         reinstall_btn.clicked.connect(self.reinstall_clicked)
         buttons_layout.addWidget(reinstall_btn)
         
-        delete_btn = AnimatedActionButton("Удалить", "#e74c3c")
+        delete_btn = AnimatedActionButton(get_text("btn_delete"), "#e74c3c")
         delete_btn.setFixedSize(140, 50)
         delete_btn.clicked.connect(self.delete_clicked)
         buttons_layout.addWidget(delete_btn)
         
-        close_btn = AnimatedActionButton("Закрыть", "#95a5a6")
+        close_btn = AnimatedActionButton(get_text("btn_close"), "#95a5a6")
         close_btn.setFixedSize(140, 50)
         close_btn.clicked.connect(self.close_clicked)
         buttons_layout.addWidget(close_btn)
@@ -3548,12 +4064,14 @@ class MainWindow(QMainWindow):
         self.cards = []
         self.first_launch = False  # Флаг первого запуска для показа уведомления (определяется позже)
         self.steamcmd_custom_path = None  # Путь к SteamCMD
-        self.last_donate_reminder = 0  # Время последнего напоминания о донатах
+        self.last_donate_reminder = 0  # Время последнего напоминания о донатов
         self.current_language = "ru"  # Текущий язык интерфейса
+        self.animations_disabled = False  # Флаг для временного отключения анимаций
         
-        # Инициализируем локализацию
+        # Инициализируем локализацию ПЕРЕД созданием UI
         self.init_localization()
         
+        # Создаём UI с правильным языком
         self.setup_ui()
         self.apply_dark_styles()  # Применяем только темную тему
         self.load_config()
@@ -3572,22 +4090,25 @@ class MainWindow(QMainWindow):
     
     def init_localization(self):
         """Инициализирует систему локализации"""
+        print(f"🌍 init_localization called")
         try:
             # Проверяем, есть ли сохраненный язык
             saved_language = load_language_preference(CONFIG_FILE)
+            print(f"🌍 init_localization: load_language_preference returned: {saved_language}")
             
-            # Если конфиг не существует, показываем диалог выбора языка
+            # Если конфиг не существует, отмечаем что нужно показать диалог языка
             if not CONFIG_FILE.exists():
-                print("🌍 First launch detected, showing language selection dialog")
-                selected_language = show_language_selection_dialog(self)
-                set_language(selected_language)
-                self.current_language = selected_language
-                # Сохраняем выбранный язык
-                save_language_preference(CONFIG_FILE)
+                print("🌍 First launch detected, language dialog will be shown")
+                self.needs_language_selection = True
+                # Пока устанавливаем русский по умолчанию
+                set_language("ru")
+                self.current_language = "ru"
             else:
+                print(f"🌍 Config exists, loading saved language: {saved_language}")
                 # Загружаем сохраненный язык
                 set_language(saved_language)
                 self.current_language = saved_language
+                self.needs_language_selection = False
                 
             print(f"🌍 Language set to: {self.current_language}")
             
@@ -3596,6 +4117,7 @@ class MainWindow(QMainWindow):
             # Fallback на русский
             set_language("ru")
             self.current_language = "ru"
+            self.needs_language_selection = False
     
     def setup_ui(self):
         self.setWindowTitle(get_text("app_title"))
@@ -3613,7 +4135,7 @@ class MainWindow(QMainWindow):
         header.setObjectName("header")
         header.setFixedHeight(80)
         h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(30, 0, 30, 0)
+        h_layout.setContentsMargins(20, 0, 20, 0)  # Уменьшили отступы для экономии места
         
         # Иконка logo.png
         logo_icon = QLabel()
@@ -3632,37 +4154,26 @@ class MainWindow(QMainWindow):
         # Логотип (минималистичный)
         logo = QLabel(get_text("app_title"))
         logo.setObjectName("headerTitle")
+        logo.setFixedWidth(350)  # Увеличиваем ширину еще больше
+        logo.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        logo.setWordWrap(False)  # Отключаем перенос строк
+        logo.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
+        # Принудительно обновляем размер и текст
+        logo.adjustSize()
+        logo.updateGeometry()
+        
         h_layout.addWidget(logo)
         
+        # Сохраняем ссылку на logo для возможного обновления
+        self.header_logo = logo
+        
+        # Добавляем растягивающийся элемент и минимальный отступ
         h_layout.addStretch()
+        h_layout.addSpacing(30)  # Уменьшенный отступ для экономии места
         
-        # Кнопка "Поддержать проект" с иконкой
-        donate_btn = QPushButton(f"  {get_text('btn_support_project')}")
-        donate_btn.setObjectName("donateButton")
-        donate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        donate_btn.setFixedHeight(40)
-        
-        # Загружаем и устанавливаем иконку sup.png (белую)
-        sup_icon_path = Path(__file__).parent / "sup.png"
-        if sup_icon_path.exists():
-            pixmap = QPixmap(str(sup_icon_path))
-            if not pixmap.isNull():
-                # Масштабируем до 20x20 для кнопки
-                scaled_pixmap = pixmap.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                
-                # Перекрашиваем в белый цвет
-                white_pixmap = QPixmap(scaled_pixmap.size())
-                white_pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(white_pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-                painter.drawPixmap(0, 0, scaled_pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-                painter.fillRect(white_pixmap.rect(), QColor(255, 255, 255))  # Белый цвет
-                painter.end()
-                
-                donate_btn.setIcon(QIcon(white_pixmap))
-                donate_btn.setIconSize(QSize(20, 20))
-        
+        # Кнопка "Поддержать проект" с анимацией падающих сердечек
+        donate_btn = AnimatedDonateButton(f"  {get_text('btn_support_project')}")
         donate_btn.clicked.connect(self.show_donate_dialog)
         h_layout.addWidget(donate_btn)
         
@@ -3725,6 +4236,40 @@ class MainWindow(QMainWindow):
             
             github_btn.clicked.connect(self.open_github_repo)
             h_layout.addWidget(github_btn)
+            
+            # Кнопка Telegram (круглая, компактная)
+            h_layout.addSpacing(2)
+            
+            telegram_btn = QPushButton()  # Убираем текст
+            telegram_btn.setObjectName("telegramButton")
+            telegram_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            telegram_btn.setFixedSize(32, 32)  # Меньший размер, чтобы не закрывать название
+            telegram_btn.setToolTip("Telegram Community")  # Тултип на английском для универсальности
+            
+            tg_icon_path = Path(__file__).parent / "tg.png"
+            if tg_icon_path.exists():
+                pixmap = QPixmap(str(tg_icon_path))
+                if not pixmap.isNull():
+                    scaled_pixmap = pixmap.scaled(16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    
+                    # Перекрашиваем в белый цвет для иконки
+                    white_pixmap = QPixmap(scaled_pixmap.size())
+                    white_pixmap.fill(Qt.GlobalColor.transparent)
+                    painter = QPainter(white_pixmap)
+                    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                    painter.drawPixmap(0, 0, scaled_pixmap)
+                    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                    painter.fillRect(white_pixmap.rect(), QColor(255, 255, 255))
+                    painter.end()
+                    
+                    telegram_btn.setIcon(QIcon(white_pixmap))
+                    telegram_btn.setIconSize(QSize(16, 16))  # Пропорциональный размер иконки
+            
+            telegram_btn.clicked.connect(self.show_telegram_community_dialog)
+            h_layout.addWidget(telegram_btn)
+            
+            # Добавляем отступ справа от кнопки Telegram
+            h_layout.addSpacing(10)
         
         main_layout.addWidget(header)
         
@@ -3739,11 +4284,12 @@ class MainWindow(QMainWindow):
         # Кнопки табов с анимацией подпрыгивания
         self.tab_buttons = []
         tabs_data = [
-            ("Аддоны", 0, "addon.png"),
-            ("Аддоны Пиратка", 1, "addon.png"),
-            ("Настройки", 2, "settings.png"),
-            ("Справка", 3, "spravka.png"),
-            ("Контакты", 4, "con.png")  # Иконка контактов
+            (get_text("tab_addons"), 0, "addon.png"),
+            (get_text("tab_pirate_addons"), 1, "addon.png"),
+            (get_text("tab_settings"), 2, "settings.png"),
+            (get_text("tab_language"), 3, "lang.png"),
+            (get_text("tab_help"), 4, "spravka.png"),
+            (get_text("tab_contacts"), 5, "con.png")  # Иконка контактов
         ]
         
         for text, index, icon_name in tabs_data:
@@ -3762,6 +4308,7 @@ class MainWindow(QMainWindow):
         self.create_addons_tab()
         self.create_pirate_addons_tab()
         self.create_settings_tab()
+        self.create_language_tab()
         self.create_faq_tab()
         self.create_contacts_tab()
         
@@ -3803,7 +4350,7 @@ class MainWindow(QMainWindow):
         title_icon.setStyleSheet("margin-top: -9px; padding-top: 9px;")  # Сдвигаем вверх и добавляем padding чтобы не обрезалось
         title_container.addWidget(title_icon, 0, Qt.AlignmentFlag.AlignVCenter)
         
-        title = QLabel("Аддоны")
+        title = QLabel(get_text("tab_addons_title"))
         title.setObjectName("sectionTitle")
         title_container.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
         title_container.addStretch()  # Stretch остается чтобы прижать к левому краю
@@ -3823,8 +4370,7 @@ class MainWindow(QMainWindow):
         
         desc.setText(
             f'<span style="color: {text_color}; font-size: 12px;">'
-            f'Управление аддонами из Steam Workshop. Включайте/выключайте моды одним кликом.<br>'
-            f'Добавляйте моды в gameinfo.txt для принудительной загрузки на серверах.'
+            f'{get_text("addons_description_full")}'
             f'</span>'
         )
         header_layout.addWidget(desc)
@@ -3848,14 +4394,14 @@ class MainWindow(QMainWindow):
         
         # Контейнер для поля поиска с кнопкой очистки
         search_container = QWidget()
-        search_container.setFixedWidth(400)
+        search_container.setFixedWidth(380)  # Уменьшили на 20px
         search_container.setFixedHeight(45)
         
         # Поле поиска
         self.search = QLineEdit(search_container)
-        self.search.setPlaceholderText("Поиск...")
+        self.search.setPlaceholderText(get_text("search_placeholder"))
         self.search.setObjectName("searchBox")
-        self.search.setGeometry(0, 0, 400, 45)
+        self.search.setGeometry(0, 0, 380, 45)  # Уменьшили на 20px
         self.search.textChanged.connect(self.filter_addons)
         
         clear_btn = QPushButton(search_container)
@@ -3864,7 +4410,7 @@ class MainWindow(QMainWindow):
         clear_btn.clicked.connect(lambda: self.search.clear())
         
         # Позиционируем кнопку: справа с отступом 8px, по центру по вертикали
-        clear_btn.move(360, 7)
+        clear_btn.move(340, 7)  # Сдвинули на 20px влево
         clear_btn.raise_()
         
         # Загружаем и устанавливаем иконку
@@ -3927,8 +4473,10 @@ class MainWindow(QMainWindow):
         self.counter = QLabel("0")
         self.counter.setObjectName("compactCounter")
         self.counter.setFixedHeight(45)  # Как у кнопок
+        self.counter.setMaximumWidth(180)  # Максимальная ширина чтобы не перекрывать поиск
         self.counter.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.counter.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.counter.setWordWrap(False)  # Отключаем перенос строк
         self.counter.setStyleSheet("""
             QLabel#compactCounter {
                 background: #2a2a2a;
@@ -3942,10 +4490,10 @@ class MainWindow(QMainWindow):
         top.addWidget(self.counter)
         
         # Кнопка "Включить все" - анимированная синяя с иконкой
-        enable_all_btn = AnimatedActionButton("Включить все", "allon.png")
+        enable_all_btn = AnimatedActionButton(get_text("btn_enable_all"), "allon.png")
         enable_all_btn.setObjectName("enableAllBtn")
         enable_all_btn.setFixedSize(135, 45)  # Уменьшил до 135
-        enable_all_btn.setToolTip("Включить все аддоны (принудительно)")
+        enable_all_btn.setToolTip(get_text("btn_enable_all"))
         btn_font = QFont()
         btn_font.setPixelSize(10)
         btn_font.setWeight(QFont.Weight.DemiBold)
@@ -3954,10 +4502,10 @@ class MainWindow(QMainWindow):
         top.addWidget(enable_all_btn)
         
         # Кнопка "Выключить все" - анимированная синяя с иконкой
-        disable_all_btn = AnimatedActionButton("Выключить все", "alloff.png")
+        disable_all_btn = AnimatedActionButton(get_text("btn_disable_all"), "alloff.png")
         disable_all_btn.setObjectName("disableAllBtn")
         disable_all_btn.setFixedSize(145, 45)  # Уменьшил до 145
-        disable_all_btn.setToolTip("Выключить все аддоны")
+        disable_all_btn.setToolTip(get_text("btn_disable_all"))
         disable_all_btn.setFont(btn_font)
         disable_all_btn.clicked.connect(self.disable_all_addons)
         top.addWidget(disable_all_btn)
@@ -4021,7 +4569,7 @@ class MainWindow(QMainWindow):
         title_icon.setStyleSheet("margin-top: -9px; padding-top: 9px;")  # Сдвигаем вверх и добавляем padding чтобы не обрезалось
         title_container.addWidget(title_icon, 0, Qt.AlignmentFlag.AlignVCenter)
         
-        title = QLabel("Аддоны для пиратки")
+        title = QLabel(get_text("tab_pirate_addons"))
         title.setObjectName("sectionTitle")
         title_container.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
         title_container.addStretch()  # Stretch остается чтобы прижать к левому краю
@@ -4041,8 +4589,7 @@ class MainWindow(QMainWindow):
         
         desc.setText(
             f'<span style="color: {text_color}; font-size: 12px;">'
-            f'Эта вкладка для установки модов напрямую в папку left4dead2/addons/<br>'
-            f'Используйте если у вас пиратская версия игры или хотите установить моды вручную.'
+            f'{get_text("pirate_addons_description_full")}'
             f'</span>'
         )
         layout.addWidget(desc)
@@ -4062,7 +4609,7 @@ class MainWindow(QMainWindow):
         
         # Поле поиска (на всю высоту контейнера)
         self.pirate_search = QLineEdit(pirate_search_container)
-        self.pirate_search.setPlaceholderText("Поиск...")
+        self.pirate_search.setPlaceholderText(get_text("search_placeholder"))
         self.pirate_search.setObjectName("searchBox")
         self.pirate_search.setGeometry(0, 0, 330, 45)
         self.pirate_search.textChanged.connect(self.filter_pirate_addons)
@@ -4136,8 +4683,10 @@ class MainWindow(QMainWindow):
         self.pirate_counter = QLabel("0")
         self.pirate_counter.setObjectName("compactCounter")
         self.pirate_counter.setFixedHeight(45)  # Как у кнопок
+        self.pirate_counter.setMaximumWidth(180)  # Максимальная ширина чтобы не перекрывать поиск
         self.pirate_counter.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.pirate_counter.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pirate_counter.setWordWrap(False)  # Отключаем перенос строк
         self.pirate_counter.setStyleSheet("""
             QLabel#compactCounter {
                 background: #2a2a2a;
@@ -4151,10 +4700,10 @@ class MainWindow(QMainWindow):
         top.addWidget(self.pirate_counter)
         
         # Кнопка "Добавить VPK" - анимированная синяя с иконкой
-        add_vpk_btn = AnimatedActionButton("Добавить VPK", "add.png")
+        add_vpk_btn = AnimatedActionButton(get_text("btn_add_vpk"), "add.png")
         add_vpk_btn.setObjectName("addVpkBtn")
         add_vpk_btn.setFixedSize(160, 45)  # Увеличил ширину для лучшего центрирования
-        add_vpk_btn.setToolTip("Выберите .vpk файлы для установки в addons/")
+        add_vpk_btn.setToolTip(get_text("add_vpk_tooltip"))
         btn_font2 = QFont()
         btn_font2.setPixelSize(10)
         btn_font2.setWeight(QFont.Weight.Medium)
@@ -4166,7 +4715,7 @@ class MainWindow(QMainWindow):
         workshop_btn = AnimatedActionButton("Workshop", "link.png")
         workshop_btn.setObjectName("workshopBtn")
         workshop_btn.setFixedSize(130, 45)  # Увеличил ширину для лучшего центрирования
-        workshop_btn.setToolTip("Скачать мод из Steam Workshop по ссылке")
+        workshop_btn.setToolTip(get_text("workshop_download_tooltip"))
         workshop_btn.setFont(btn_font2)
         workshop_btn.clicked.connect(self.download_from_workshop)
         top.addWidget(workshop_btn)
@@ -4215,7 +4764,7 @@ class MainWindow(QMainWindow):
         
         if not self.game_folder:
             print("❌ No game folder set for pirate scan")
-            self.pirate_counter.setText("⚠ Настройте путь к игре в настройках")
+            self.set_counter_text(self.pirate_counter, get_text("configure_game_path"), 22)
             return
         
         addons_path = self.game_folder / "left4dead2" / "addons"
@@ -4317,7 +4866,7 @@ class MainWindow(QMainWindow):
         
         enabled_count = sum(1 for a in self.pirate_addons_data if a['enabled'])
         print(f"🏴‍☠️ Pirate scan completed: {len(self.pirate_addons_data)} addons found ({enabled_count} enabled)")
-        self.pirate_counter.setText(f"Аддонов: {len(self.pirate_addons_data)} ({enabled_count} вкл)")
+        self.set_counter_text(self.pirate_counter, get_text("addons_counter", total=len(self.pirate_addons_data), enabled=enabled_count), 22)
     
     def toggle_pirate_addon(self, addon_data, new_state):
         """Включает/выключает пиратский аддон через переименование"""
@@ -4354,10 +4903,10 @@ class MainWindow(QMainWindow):
             
             # Обновляем счетчик
             enabled_count = sum(1 for a in self.pirate_addons_data if a['enabled'])
-            self.pirate_counter.setText(f"Аддонов: {len(self.pirate_addons_data)} ({enabled_count} вкл)")
+            self.set_counter_text(self.pirate_counter, get_text("addons_counter", total=len(self.pirate_addons_data), enabled=enabled_count), 22)
             
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось переключить мод: {e}")
+            QMessageBox.critical(self, get_text("error_title"), get_text("addon_switch_error", error=str(e)))
     
     def delete_pirate_addon(self, vpk_path):
         """Удаляет мод из папки addons/"""
@@ -4370,8 +4919,8 @@ class MainWindow(QMainWindow):
             if not vpk_path.exists():
                 CustomInfoDialog.information(
                     self, 
-                    "Ошибка", 
-                    f"Файл не найден:\n{vpk_path.name}",
+                    get_text("error_title"), 
+                    get_text("file_not_found", filename=vpk_path.name),
                     icon_type="error"
                 )
                 return
@@ -4379,8 +4928,8 @@ class MainWindow(QMainWindow):
             # Используем кастомный диалог удаления с красной иконкой мусорки
             reply = CustomDeleteDialog.confirm_delete(
                 self,
-                "Удалить мод?",
-                f"Вы уверены, что хотите удалить мод?\n\n{vpk_path.name}\n\nЭто действие нельзя отменить."
+                get_text("confirm_delete_mod"),
+                get_text("confirm_delete_message", filename=vpk_path.name)
             )
             
             if reply:
@@ -4390,8 +4939,8 @@ class MainWindow(QMainWindow):
                     # Используем существующий blur от диалога подтверждения
                     CustomInfoDialog.information(
                         self, 
-                        "Мод удален", 
-                        f"Мод успешно удален:\n{vpk_path.name}",
+                        get_text("mod_deleted_title"), 
+                        get_text("mod_deleted_message", filename=vpk_path.name),
                         use_existing_blur=True,
                         icon_type="success"
                     )
@@ -4401,8 +4950,8 @@ class MainWindow(QMainWindow):
                     # Используем существующий blur от диалога подтверждения
                     CustomInfoDialog.information(
                         self, 
-                        "Ошибка удаления", 
-                        f"Не удалось удалить файл:\n\n{str(e)}\n\nВозможно, файл используется другой программой.",
+                        get_text("delete_error"), 
+                        get_text("delete_error_message", error=str(e)),
                         use_existing_blur=True,
                         icon_type="error"
                     )
@@ -4413,15 +4962,15 @@ class MainWindow(QMainWindow):
             print(f"[ERROR] Unexpected error in delete_pirate_addon: {error_details}")
             CustomInfoDialog.information(
                 self, 
-                "Ошибка", 
-                f"Произошла неожиданная ошибка:\n{str(e)}",
+                get_text("error_title"), 
+                get_text("unexpected_error", error=str(e)),
                 icon_type="error"
             )
     
     def open_addons_folder(self):
         """Открывает папку addons в проводнике"""
         if not self.game_folder:
-            QMessageBox.warning(self, "Ошибка", "Сначала укажите папку с игрой")
+            QMessageBox.warning(self, get_text("error_title"), get_text("specify_game_folder_first"))
             return
         
         addons_path = self.game_folder / "left4dead2" / "addons"
@@ -4465,7 +5014,7 @@ class MainWindow(QMainWindow):
         title_icon.setStyleSheet("margin-top: -9px; padding-top: 9px;")  # Сдвигаем вверх и добавляем padding чтобы не обрезалось
         title_container.addWidget(title_icon, 0, Qt.AlignmentFlag.AlignVCenter)
         
-        title = QLabel("Настройки")
+        title = QLabel(get_text("tab_settings"))
         title.setObjectName("sectionTitle")
         title_container.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
         title_container.addStretch()  # Stretch остается чтобы прижать к левому краю
@@ -4474,17 +5023,17 @@ class MainWindow(QMainWindow):
         
         # Карточка: Папка с игрой
         path_card = self.create_settings_card(
-            "Папка с игрой",
-            "Укажите папку steamapps\\common\\Left 4 Dead 2"
+            get_text("settings_game_path"),
+            get_text("settings_game_path_desc")
         )
         self.path_input = QLineEdit()
         self.path_input.setObjectName("settingsInput")
-        self.path_input.setPlaceholderText("D:/SteamLibrary/steamapps/common/Left 4 Dead 2")
+        self.path_input.setPlaceholderText(get_text("path_placeholder"))
         # Подключаем обновление статуса при изменении текста
         self.path_input.textChanged.connect(self.on_path_changed)
         path_card.layout().addWidget(self.path_input)
         
-        browse_btn = QPushButton("Выбрать папку")
+        browse_btn = QPushButton(get_text("btn_browse_folder"))
         browse_btn.setObjectName("settingsBtn")
         browse_btn.clicked.connect(self.browse_folder)
         path_card.layout().addWidget(browse_btn)
@@ -4494,28 +5043,30 @@ class MainWindow(QMainWindow):
         
         # Карточка: Статус файлов
         status_card = self.create_settings_card(
-            "Статус файлов",
-            "Проверка наличия необходимых файлов"
+            get_text("settings_file_status"),
+            get_text("settings_file_status_desc")
         )
         
-        self.gameinfo_status = QLabel("✓ gameinfo.txt найден")
+        self.gameinfo_status = QLabel(get_text("gameinfo_found"))
         self.gameinfo_status.setObjectName("statusLabel")
         status_card.layout().addWidget(self.gameinfo_status)
         
-        self.workshop_status = QLabel("✓ workshop найден")
+        self.workshop_status = QLabel(get_text("workshop_found"))
         self.workshop_status.setObjectName("statusLabel")
         status_card.layout().addWidget(self.workshop_status)
         
         layout.addWidget(status_card)
         self.animate_settings_card(status_card, 1)
         
+
+        
         # Карточка: Действия
         actions_card = self.create_settings_card(
-            "Действия",
-            "Управление оригинальными файлами"
+            get_text("settings_actions"),
+            get_text("settings_actions_desc")
         )
         
-        restore_btn = QPushButton("⟲ Восстановить оригинальный gameinfo.txt")
+        restore_btn = QPushButton(get_text("btn_restore_gameinfo"))
         restore_btn.setObjectName("dangerBtn")
         restore_btn.clicked.connect(self.restore_gameinfo)
         actions_card.layout().addWidget(restore_btn)
@@ -4580,59 +5131,120 @@ class MainWindow(QMainWindow):
         """Показывает диалог с информацией о поддержке проекта"""
         CustomInfoDialog.information(
             self,
-            "Поддержать проект",
-            '<div style="text-align: center; color: white;">'
-            'Если вам нравится программа и вы хотите поддержать разработку, буду очень благодарен!<br><br>'
-            'Ваши донаты помогут:<br>'
-            '• Добавлять новые функции<br>'
-            '• Исправлять баги быстрее<br>'
-            '• Поддерживать программу актуальной<br><br>'
-            'Способы поддержки:<br>'
-            '💎 Booosty: <a href="https://boosty.to/k1n1maro" style="color: #3498db; text-decoration: none;">https://boosty.to/k1n1maro</a><br>'
-            '🔔 DonationAlerts: <a href="https://www.donationalerts.com/r/k1n1maro" style="color: #3498db; text-decoration: none;">https://www.donationalerts.com/r/k1n1maro</a><br>'
-            '💳 Номер карты: <a href="card:2202206738934277" style="color: #3498db; text-decoration: none; cursor: pointer;">2202 2067 3893 4277</a><br>'
-            '<span style="font-size: 11px; color: #7f8c8d;">(нажмите чтобы скопировать)</span><br><br>'
-            '🎮 Steam профиль: <a href="https://steamcommunity.com/id/kinimaro/" style="color: #3498db; text-decoration: none;">steamcommunity.com/id/kinimaro</a><br><br>'
-            'Спасибо за вашу поддержку! ❤️'
-            '</div>',
+            get_text("support_title"),
+            f'<div style="text-align: center; color: white;">{get_text("support_message")}</div>',
             icon_type="info"
         )
     
+    def show_telegram_community_dialog(self):
+        """Показывает диалог приглашения в Telegram сообщество"""
+        # Создаем кастомный диалог с кнопками
+        dialog = TelegramCommunityDialog(self)
+        if dialog.exec():
+            # Пользователь нажал "Присоединиться"
+            import webbrowser
+            webbrowser.open("https://t.me/addon_manager")
+        # Если нажал "Позже" - ничего не делаем
+    
     def check_daily_donate_reminder(self):
-        """Проверяет и показывает ежедневное напоминание о донатах"""
+        """Показывает напоминание о донатах при каждом запуске"""
+        print("🔔 check_daily_donate_reminder called - showing every startup")
+        
+        # Показываем напоминание при каждом запуске
+        print("🔔 Showing donate reminder dialog")
+        CustomInfoDialog.information(
+            self,
+            get_text("daily_reminder_title"),
+            f'<div style="text-align: center; color: white;">{get_text("daily_reminder_message")}</div>',
+            icon_type="info"
+        )
+        
+        # После напоминания о донатах показываем приглашение в Telegram (с задержкой)
+        QTimer.singleShot(300, self.check_telegram_community_invitation)
+    
+    def check_telegram_community_invitation(self):
+        """Показывает приглашение в Telegram сообщество раз в час"""
+        print("📱 check_telegram_community_invitation called - once per hour")
+        
         import time
-        
         current_time = time.time()
-        # 24 часа = 86400 секунд
-        time_since_last_reminder = current_time - self.last_donate_reminder
+        # 1 час = 3600 секунд
+        time_since_last_invitation = current_time - getattr(self, 'last_telegram_invitation', 0)
+        print(f"📱 Telegram invitation check: {time_since_last_invitation} seconds since last (need 3600 for 1h)")
         
-        # Показываем напоминание если прошло больше 24 часов (или это первый запуск)
-        if time_since_last_reminder >= 86400 or self.last_donate_reminder == 0:
-            # Обновляем время последнего напоминания
-            self.last_donate_reminder = current_time
+        # Показываем приглашение если прошло больше часа (или это первый запуск)
+        if time_since_last_invitation >= 3600 or not hasattr(self, 'last_telegram_invitation'):
+            print("📱 Showing Telegram invitation dialog - once per hour")
+            
+            # Обновляем время последнего приглашения
+            self.last_telegram_invitation = current_time
             self.save_config()
             
-            # Показываем напоминание
-            CustomInfoDialog.information(
-                self,
-                "💝 Поддержите проект",
-                '<div style="text-align: center; color: white;">'
-                'Привет! Надеюсь, программа вам нравится.<br><br>'
-                'Если вы хотите поддержать разработку, буду очень благодарен!<br><br>'
-                'Ваши донаты помогут:<br>'
-                '• Добавлять новые функции<br>'
-                '• Исправлять баги быстрее<br>'
-                '• Поддерживать программу актуальной<br><br>'
-                'Способы поддержки:<br>'
-                '💎 Booosty: <a href="https://boosty.to/k1n1maro" style="color: #3498db; text-decoration: none;">https://boosty.to/k1n1maro</a><br>'
-                '🔔 DonationAlerts: <a href="https://www.donationalerts.com/r/k1n1maro" style="color: #3498db; text-decoration: none;">https://www.donationalerts.com/r/k1n1maro</a><br>'
-                '💳 Номер карты: <a href="card:2202206738934277" style="color: #3498db; text-decoration: none; cursor: pointer;">2202 2067 3893 4277</a><br>'
-                '<span style="font-size: 11px; color: #7f8c8d;">(нажмите чтобы скопировать)</span><br><br>'
-                '🎮 Steam профиль: <a href="https://steamcommunity.com/id/kinimaro/" style="color: #3498db; text-decoration: none;">steamcommunity.com/id/kinimaro</a><br><br>'
-                'Спасибо за вашу поддержку! ❤️'
-                '</div>',
-                icon_type="info"
-            )
+            # Показываем диалог приглашения
+            dialog = TelegramCommunityDialog(self)
+            if dialog.exec():
+                # Пользователь нажал "Присоединиться"
+                import webbrowser
+                webbrowser.open("https://t.me/addon_manager")
+        else:
+            print(f"📱 Telegram invitation not shown - need to wait {3600 - time_since_last_invitation:.0f} more seconds")
+        
+        # После всех уведомлений показываем элементы интерфейса
+        QTimer.singleShot(200, self.show_interface_after_notifications)
+    
+    def show_interface_after_notifications(self):
+        """Показывает элементы интерфейса после всех уведомлений"""
+        print("✅ All notifications shown, displaying interface elements")
+        
+        # ОКОНЧАТЕЛЬНО РАЗБЛОКИРУЕМ МЫШЬ для главного окна
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        print("✅ Mouse events finally unblocked - interface fully ready")
+        
+        # Показываем все элементы вкладки
+        if hasattr(self, 'tab_header_container'):
+            self.tab_header_container.setEnabled(True)  # Разблокируем события мыши
+            self.tab_header_container.show()
+        
+        if hasattr(self, 'controls_container'):
+            self.controls_container.setEnabled(True)  # Разблокируем события мыши
+            self.controls_container.show()
+        
+        # Финальная очистка событий
+        QApplication.processEvents()
+        
+        # Включаем анимации обратно
+        self.animations_disabled = False
+        
+        # Дополнительный сброс hover состояний после показа интерфейса
+        QTimer.singleShot(200, self.force_reset_card_states)
+    
+    def reset_notification_timers_for_testing(self):
+        """Сбрасывает таймеры уведомлений для тестирования (вызывается через консоль)"""
+        print("🔄 Resetting notification timers for testing...")
+        self.last_donate_reminder = 0
+        self.last_telegram_invitation = 0
+        self.save_config()
+        print("✅ Notification timers reset. Call check_daily_donate_reminder() to test.")
+    
+    def force_show_notifications(self):
+        """Принудительно показывает уведомления для тестирования"""
+        print("🔔 Force showing donate reminder...")
+        CustomInfoDialog.information(
+            self,
+            get_text("daily_reminder_title"),
+            f'<div style="text-align: center; color: white;">{get_text("daily_reminder_message")}</div>',
+            icon_type="info"
+        )
+        
+        print("📱 Force showing Telegram invitation...")
+        QTimer.singleShot(1000, lambda: self._force_show_telegram())
+    
+    def _force_show_telegram(self):
+        """Вспомогательный метод для показа Telegram диалога"""
+        dialog = TelegramCommunityDialog(self)
+        if dialog.exec():
+            import webbrowser
+            webbrowser.open("https://t.me/addon_manager")
     
     def browse_folder(self):
         """Выбор папки с анимацией кнопки"""
@@ -4643,7 +5255,7 @@ class MainWindow(QMainWindow):
         
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Выберите папку Left 4 Dead 2",
+            get_text("select_l4d2_folder"),
             str(Path.home())
         )
         if folder:
@@ -4677,9 +5289,8 @@ class MainWindow(QMainWindow):
         # Используем кастомный диалог подтверждения
         reply = CustomConfirmDialog.question(
             self,
-            "Восстановить gameinfo.txt?",
-            "Вы уверены, что хотите восстановить оригинальный gameinfo.txt из резервной копии?\n\n"
-            "Все текущие изменения будут потеряны."
+            get_text("restore_gameinfo_title"),
+            get_text("restore_gameinfo_confirm")
         )
         
         if reply:
@@ -4689,9 +5300,8 @@ class MainWindow(QMainWindow):
                 if not backup_path.exists():
                     CustomInfoDialog.information(
                         self, 
-                        "Резервная копия не найдена", 
-                        "Резервная копия gameinfo.txt не найдена.\n\n"
-                        "Возможно, она была удалена или программа не создавала её ранее.",
+                        get_text("backup_not_found_title"), 
+                        get_text("backup_not_found_message"),
                         icon_type="error"
                     )
                     return
@@ -4701,9 +5311,8 @@ class MainWindow(QMainWindow):
                 
                 CustomInfoDialog.information(
                     self, 
-                    "Файл восстановлен", 
-                    "Файл gameinfo.txt успешно восстановлен из резервной копии.\n\n"
-                    "Список аддонов будет обновлен.",
+                    get_text("file_restored_title"), 
+                    get_text("file_restored_message"),
                     icon_type="success"
                 )
                 
@@ -4713,9 +5322,8 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 CustomInfoDialog.information(
                     self, 
-                    "Ошибка восстановления", 
-                    f"Не удалось восстановить файл:\n\n{str(e)}\n\n"
-                    "Проверьте права доступа к файлу.",
+                    get_text("restore_error_title"), 
+                    get_text("restore_error_message", error=str(e)),
                     icon_type="error"
                 )
     
@@ -4729,18 +5337,139 @@ class MainWindow(QMainWindow):
         """Обновление статуса файлов"""
         if hasattr(self, 'gameinfo_status'):
             if self.gameinfo_path and self.gameinfo_path.exists():
-                self.gameinfo_status.setText("✓ gameinfo.txt найден")
+                self.gameinfo_status.setText(get_text("gameinfo_found"))
                 self.gameinfo_status.setStyleSheet("color: #27ae60;")
             else:
-                self.gameinfo_status.setText("✗ gameinfo.txt не найден")
+                self.gameinfo_status.setText(get_text("gameinfo_not_found"))
                 self.gameinfo_status.setStyleSheet("color: #e74c3c;")
             
             if self.workshop_path and self.workshop_path.exists():
-                self.workshop_status.setText("✓ workshop найден")
+                self.workshop_status.setText(get_text("workshop_found"))
                 self.workshop_status.setStyleSheet("color: #27ae60;")
             else:
-                self.workshop_status.setText("✗ workshop не найден")
+                self.workshop_status.setText(get_text("workshop_not_found"))
                 self.workshop_status.setStyleSheet("color: #e74c3c;")
+    
+    def create_language_tab(self):
+        """Вкладка выбора языка"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(40, 20, 40, 20)
+        layout.setSpacing(20)
+        
+        # Заголовок с иконкой
+        title_container = QHBoxLayout()
+        title_container.setSpacing(10)
+        
+        # Иконка языка
+        title_icon = QLabel()
+        lang_icon_path = get_resource_path("lang.png")
+        if lang_icon_path.exists():
+            pixmap = QPixmap(str(lang_icon_path))
+            if not pixmap.isNull():
+                # Перекрашиваем в белый цвет
+                painter = QPainter(pixmap)
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+                painter.fillRect(pixmap.rect(), QColor(255, 255, 255, 200))
+                painter.end()
+                
+                # Масштабируем до 24x24
+                scaled_pixmap = pixmap.scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                title_icon.setPixmap(scaled_pixmap)
+        title_icon.setFixedSize(24, 24)
+        title_icon.setStyleSheet("margin-top: -9px; padding-top: 9px;")
+        title_container.addWidget(title_icon, 0, Qt.AlignmentFlag.AlignVCenter)
+        
+        title = QLabel(get_text('tab_language'))
+        title.setObjectName("sectionTitle")
+        title_container.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_container.addStretch()
+        
+        layout.addLayout(title_container)
+        
+        # Описание
+        description = QLabel(
+            "Select your preferred interface language. The application will restart to apply changes.\n"
+            "Выберите предпочитаемый язык интерфейса. Приложение перезапустится для применения изменений."
+        )
+        description.setStyleSheet("color: #bdc3c7; font-size: 13px; line-height: 1.5; margin-bottom: 20px;")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        
+        # Кнопки выбора языка
+        languages_container = QWidget()
+        languages_layout = QVBoxLayout(languages_container)
+        languages_layout.setSpacing(15)
+        
+        # Русский язык
+        self.russian_lang_btn = self.create_language_card("🇷🇺", "Русский", "Russian", "ru")
+        languages_layout.addWidget(self.russian_lang_btn)
+        
+        # Английский язык
+        self.english_lang_btn = self.create_language_card("🇺🇸", "English", "Английский", "en")
+        languages_layout.addWidget(self.english_lang_btn)
+        
+        layout.addWidget(languages_container)
+        layout.addStretch()
+        
+        self.stack.addWidget(tab)
+    
+    def create_language_card(self, flag, primary_name, secondary_name, language_code):
+        """Создает карточку выбора языка"""
+        card = QWidget()
+        card.setObjectName("languageCard")
+        card.setFixedHeight(80)
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        # Добавляем эффект прозрачности для анимации
+        card.opacity_effect = QGraphicsOpacityEffect()
+        card.opacity_effect.setOpacity(1)
+        card.setGraphicsEffect(card.opacity_effect)
+        
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(15)
+        
+        # Флаг
+        flag_label = QLabel(flag)
+        flag_label.setStyleSheet("font-size: 32px;")
+        flag_label.setFixedSize(50, 50)
+        flag_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(flag_label)
+        
+        # Текст
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        
+        primary_label = QLabel(primary_name)
+        primary_label.setStyleSheet("font-size: 16px; font-weight: 600; color: white;")
+        text_layout.addWidget(primary_label)
+        
+        secondary_label = QLabel(secondary_name)
+        secondary_label.setStyleSheet("font-size: 12px; color: #bdc3c7;")
+        text_layout.addWidget(secondary_label)
+        
+        layout.addLayout(text_layout)
+        layout.addStretch()
+        
+        # Индикатор выбора
+        indicator = QLabel("✓" if self.current_language == language_code else "")
+        indicator.setStyleSheet("font-size: 20px; color: #3498db; font-weight: bold;")
+        indicator.setFixedSize(30, 30)
+        indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(indicator)
+        
+        # Сохраняем ссылки для удобного доступа
+        card.language_code = language_code
+        card.indicator = indicator
+        
+        # Обработчик клика
+        def on_click():
+            self.change_language(language_code)
+        
+        card.mousePressEvent = lambda event: on_click()
+        
+        return card
     
     def create_faq_tab(self):
         """Вкладка справки с анимациями"""
@@ -4771,7 +5500,7 @@ class MainWindow(QMainWindow):
         title_icon.setStyleSheet("margin-top: -9px; padding-top: 9px;")  # Сдвигаем вверх и добавляем padding чтобы не обрезалось
         title_container.addWidget(title_icon, 0, Qt.AlignmentFlag.AlignVCenter)
         
-        title = QLabel("Справка")
+        title = QLabel(get_text("tab_help"))
         title.setObjectName("sectionTitle")
         title_container.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
         title_container.addStretch()  # Stretch остается чтобы прижать к левому краю
@@ -4790,101 +5519,13 @@ class MainWindow(QMainWindow):
         
         # FAQ карточки
         faqs = [
-            ("О программе", 
-             "L4D2 Addon Manager - это современный менеджер модов для Left 4 Dead 2 с красивым интерфейсом и удобным управлением.\n\n"
-             "Основные возможности:\n"
-             "• Включение/выключение аддонов одним кликом\n"
-             "• Удобная установка модов (для пиратской версии)\n"
-             "• Добавление модов в gameinfo.txt для загрузки на серверах\n"
-             "• Скачивание модов/коллекций напрямую из Steam Workshop по ссылке\n"
-             "• Автоматическая загрузка информации о модах из Steam API\n"
-             "• Поиск, сортировка и массовые операции с модами\n"
-             "• Резервное копирование и восстановление файлов игры"),
-            
-            ("Вкладка 'Аддоны' — управление модами Steam Workshop",
-             "⚠ ОСНОВНАЯ ФУНКЦИЯ: Позволяет принудительно включать моды там, где они отключены!\n\n"
-             "Где это работает:\n"
-             "• На серверах режима Versus (где моды обычно запрещены)\n"
-             "• Если вам забанили аддоны на сервере\n"
-             "• В любых режимах где моды не работают\n\n"
-             "Как это работает:\n"
-             "Программа редактирует файл gameinfo.txt и добавляет туда ваши моды. Это заставляет игру загружать их принудительно.\n\n"
-             "Что можно делать:\n"
-             "• Включать/выключать моды переключателем\n"
-             "• Добавлять моды в gameinfo.txt для принудительной загрузки\n"
-             "• Искать моды по названию\n"
-             "• Сортировать по имени или статусу\n"
-             "• Массово включать/выключать все моды\n"
-             "• Обновлять список модов\n\n"
-             "⚠ ВАЖНО:\n"
-             "• Некоторые сервера не пускают с измененным gameinfo.txt\n"
-             "• Можно восстановить оригинальный файл в настройках\n"
-             "• Можно временно отключить моды переключателем\n\n"
-             "⚠ МЫ ПРОТИВ ЧИТОВ! Используйте только для честной игры (скины, звуки, HUD). Не используйте для получения преимуществ над другими игроками!"),
-            
-            ("Вкладка 'Аддоны Пиратка' — ручная установка модов",
-             "Удобное управление модами для пиратской версии или ручной установки.\n\n"
-             "Что можно делать:\n"
-             "• Добавлять .vpk файлы через drag & drop или кнопку 'Добавить VPK'\n"
-             "• Скачивать моды/коллекции из Workshop по ссылке (даже без Steam!)\n"
-             "• Включать/выключать моды одним кликом\n"
-             "• Удалять ненужные моды\n\n"
-             "Как добавить мод:\n"
-             "1. Нажмите кнопку 'Добавить .vpk файл'\n"
-             "2. Выберите .vpk файл мода\n"
-             "3. Мод автоматически скопируется в папку addons\n\n"
-             "Как скачать из Workshop:\n"
-             "1. Скопируйте ссылку на мод/коллекцию из Steam Workshop\n"
-             "2. Нажмите кнопку 'Скачать из Workshop'\n"
-             "3. Вставьте ссылку и нажмите 'Скачать'\n"
-             "4. Программа автоматически скачает и установит мод"),
-            
-            ("Вкладка 'Настройки' — конфигурация программы",
-             "Здесь можно настроить программу и восстановить файлы игры.\n\n"
-             "Доступные настройки:\n"
-             "• Путь к игре - укажите папку с Left 4 Dead 2\n"
-             "• Восстановить gameinfo.txt - вернуть оригинальный файл\n"
-             "• Очистить кэш - удалить временные файлы\n\n"
-             "Если что-то пошло не так:\n"
-             "1. Нажмите 'Восстановить gameinfo.txt'\n"
-             "2. Перезапустите игру\n"
-             "3. Всё вернётся к исходному состоянию"),
-            
-            ("Что такое gameinfo.txt?",
-             "Это файл настроек игры. Если добавить туда моды, они будут работать даже на серверах (где обычно моды отключены).\n\n"
-             "Программа сама создает копию этого файла перед изменениями. Если что-то пойдет не так — можно восстановить оригинал в настройках.\n\n"
-             "Как это работает:\n"
-             "1. Программа находит файл gameinfo.txt в папке игры\n"
-             "2. Создаёт резервную копию (gameinfo.txt.backup)\n"
-             "3. Добавляет пути к вашим модам в секцию SearchPaths\n"
-             "4. Игра загружает моды при запуске\n\n"
-             "Безопасно ли это?\n"
-             "Да! Программа всегда создаёт резервную копию перед изменениями. Вы всегда можете вернуть всё обратно."),
-            
-            ("Моды не работают. Что делать?",
-             "Попробуйте по порядку:\n\n"
-             "1. Проверьте, что мод включен (переключатель)\n"
-             "2. Нажмите кнопку 'Обновить' на вкладке\n"
-             "3. Зайдите в 'Настройки' и проверьте путь к игре\n"
-             "4. Перезапустите игру\n"
-             "5. Проверьте, что файлы мода не повреждены\n\n"
-             "Если не помогло:\n"
-             "• Возможно конфликт модов (два мода меняют одно и то же)\n"
-             "• Попробуйте отключить часть модов\n"
-             "• Проверьте, что мод совместим с вашей версией игры\n"
-             "• Восстановите gameinfo.txt в настройках и попробуйте снова\n\n"
-             "Если проблема сохраняется - напишите в поддержку (вкладка Контакты)."),
-            
-            ("Это безопасно?",
-             "Да, полностью безопасно:\n\n"
-             "• Программа делает резервные копии перед изменениями\n"
-             "• Не трогает файлы самой игры (только моды и gameinfo.txt)\n"
-             "• Работает только с модами\n"
-             "• Можно откатить все изменения в настройках\n"
-             "• Открытый исходный код - можете проверить сами\n\n"
-             "Ничего не сломается, все можно вернуть обратно одной кнопкой.\n\n"
-             "Антивирус ругается?\n"
-             "Это ложное срабатывание. Программа написана на Python и упакована в .exe - некоторые антивирусы считают это подозрительным. Можете проверить исходный код на GitHub."),
+            (get_text("faq_about_title"), get_text("faq_about_content")),
+            (get_text("faq_workshop_title"), get_text("faq_workshop_content")),
+            (get_text("faq_pirate_title"), get_text("faq_pirate_content")),
+            (get_text("faq_settings_title"), get_text("faq_settings_content")),
+            (get_text("faq_gameinfo_title"), get_text("faq_gameinfo_content")),
+            (get_text("faq_troubleshooting_title"), get_text("faq_troubleshooting_content")),
+            (get_text("faq_safety_title"), get_text("faq_safety_content")),
         ]
         
         for i, (question, answer) in enumerate(faqs):
@@ -4946,7 +5587,7 @@ class MainWindow(QMainWindow):
         title_container.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
         
         # Текст заголовка
-        title = QLabel("Контакты")
+        title = QLabel(get_text("contacts_title"))
         title.setObjectName("sectionTitle")
         title_container.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
         title_container.addStretch()
@@ -4965,44 +5606,24 @@ class MainWindow(QMainWindow):
         
         # Карточка "Нашли баг?"
         bug_card = SettingsCard(
-            "Нашли баг?",
-            "Если вы столкнулись с ошибкой или программа работает некорректно, пожалуйста, сообщите об этом:<br><br>"
-            "📧 Email: <a href='mailto:scalevvizard1@gmail.com' style='color: #3498db; text-decoration: none;'>scalevvizard1@gmail.com</a><br><br>"
-            "Опишите проблему максимально подробно:<br>"
-            "• Что вы делали когда произошла ошибка<br>"
-            "• Какое сообщение об ошибке появилось<br>"
-            "• Скриншот (если возможно)<br><br>"
-            "Я постараюсь исправить баг как можно скорее!"
+            get_text("contacts_bug_title"),
+            get_text("contacts_bug_content")
         )
         scroll_layout.addWidget(bug_card)
         self.animate_settings_card(bug_card, 0)
         
         # Карточка "Поддержать проект"
         donate_card = SettingsCard(
-            "Поддержать проект",
-            "Если вам нравится программа и вы хотите поддержать разработку, буду очень благодарен!<br><br>"
-            "Ваши донаты помогут:<br>"
-            "• Добавлять новые функции<br>"
-            "• Исправлять баги быстрее<br>"
-            "• Поддерживать программу актуальной<br><br>"
-            "Способы поддержки:<br>"
-            "💳 Boosty: <a href='https://boosty.to/k1n1maro' style='color: #3498db; text-decoration: none;'>https://boosty.to/k1n1maro</a><br>"
-            "💰 DonationAlerts: <a href='https://www.donationalerts.com/r/k1n1maro' style='color: #3498db; text-decoration: none;'>https://www.donationalerts.com/r/k1n1maro</a><br>"
-            "💳 Номер карты: <a href='card:2202206738934277' style='color: #3498db; text-decoration: none;'>2202 2067 3893 4277</a><br>"
-            "<span style='font-size: 11px; color: #7f8c8d;'>(нажмите чтобы скопировать)</span><br><br>"
-            "Спасибо за вашу поддержку! ❤️"
+            get_text("contacts_support_title"),
+            get_text("contacts_support_content")
         )
         scroll_layout.addWidget(donate_card)
         self.animate_settings_card(donate_card, 1)
         
         # Карточка "Связь с разработчиком"
         contact_card = SettingsCard(
-            "Связь с разработчиком",
-            "Хотите связаться со мной по другим вопросам?<br><br>"
-            "🎮 Steam: <a href='https://steamcommunity.com/id/kinimaro/' style='color: #3498db; text-decoration: none;'>https://steamcommunity.com/id/kinimaro/</a><br>"
-            "✈️ Telegram: <a href='https://t.me/angel_its_me' style='color: #3498db; text-decoration: none;'>https://t.me/angel_its_me</a><br>"
-            "📧 Email: <a href='mailto:scalevvizard1@gmail.com' style='color: #3498db; text-decoration: none;'>scalevvizard1@gmail.com</a><br><br>"
-            "Буду рад вашим отзывам и предложениям!"
+            get_text("contacts_developer_title"),
+            get_text("contacts_developer_content")
         )
         scroll_layout.addWidget(contact_card)
         self.animate_settings_card(contact_card, 2)
@@ -5138,7 +5759,35 @@ class MainWindow(QMainWindow):
                 print(f"Ошибка при переключении вкладки: {e}")
     
     def show_welcome(self):
-        """Показывает welcome dialog"""
+        """Показывает диалог выбора языка (если нужно) и welcome dialog"""
+        # Сначала показываем диалог выбора языка при первом запуске
+        if hasattr(self, 'needs_language_selection') and self.needs_language_selection:
+            print("🌍 Showing language selection dialog before welcome")
+            selected_language = show_language_selection_dialog(self)
+            
+            # Применяем выбранный язык
+            print(f"🌍 Setting language to: {selected_language}")
+            set_language(selected_language)
+            self.current_language = selected_language
+            
+            # Сохраняем выбранный язык
+            print(f"🌍 Saving language preference...")
+            save_language_preference(CONFIG_FILE)
+            
+            # КРИТИЧНО: Пересоздаём весь UI с новым языком
+            print(f"🌍 Recreating UI with new language...")
+            self.recreate_ui_with_language()
+            
+            self.needs_language_selection = False
+            print(f"🌍 Language selected and saved: {selected_language}")
+            
+            # Проверяем, что язык действительно установлен
+            from localization import get_text
+            print(f"🌍 Test translation: tab_addons = '{get_text('tab_addons')}'")
+            print(f"🌍 Test translation: tab_settings = '{get_text('tab_settings')}'")
+            print(f"🌍 Test translation: btn_support_project = '{get_text('btn_support_project')}'")
+        
+        # Затем показываем welcome dialog
         # Оставляем blur после закрытия для плавного перехода к уведомлению
         dialog = BlurDialog(self, keep_blur_on_close=True)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -5146,6 +5795,8 @@ class MainWindow(QMainWindow):
             if not self.validate_game_path():
                 self.prompt_game_folder()
             else:
+                # Обеспечиваем правильную загрузку аддонов после выбора языка
+                print("🌍 Starting addon scan with selected language...")
                 self.scan_addons()
             
             # Напоминание о донатах теперь показывается после загрузки аддонов
@@ -5153,56 +5804,444 @@ class MainWindow(QMainWindow):
             # Если пользователь отменил, убираем blur
             self.setGraphicsEffect(None)
     
+    def recreate_ui_with_language(self):
+        """Пересоздаёт весь UI с новым языком"""
+        try:
+            print("🌍 Recreating UI...")
+            
+            # Удаляем старый центральный виджет
+            old_widget = self.centralWidget()
+            if old_widget:
+                old_widget.deleteLater()
+            
+            # Пересоздаём UI
+            self.setup_ui()
+            self.apply_dark_styles()
+            
+            # Обновляем пути если они были установлены
+            if hasattr(self, 'game_folder') and self.game_folder:
+                self.update_paths()
+            
+            print("🌍 UI recreated successfully")
+            
+        except Exception as e:
+            print(f"❌ Error recreating UI: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def update_ui_language(self):
+        """Обновляет язык интерфейса"""
+        try:
+            print(f"🌍 Starting comprehensive UI language update...")
+            
+            # Обновляем заголовок окна
+            new_title = get_text("app_title")
+            print(f"🌍 Setting window title to: '{new_title}'")
+            self.setWindowTitle(new_title)
+            
+            # Обновляем текст вкладок
+            if hasattr(self, 'tab_buttons') and self.tab_buttons:
+                print(f"🌍 Found {len(self.tab_buttons)} tab buttons")
+                tab_texts = [
+                    get_text("tab_addons"),
+                    get_text("tab_pirate_addons"), 
+                    get_text("tab_settings"),
+                    get_text("tab_language"),
+                    get_text("tab_help"),
+                    get_text("tab_contacts")
+                ]
+                
+                print(f"🌍 Tab texts: {tab_texts}")
+                
+                for i, btn in enumerate(self.tab_buttons):
+                    if i < len(tab_texts):
+                        old_text = btn.text()
+                        btn.setText(tab_texts[i])
+                        print(f"🌍 Tab {i}: '{old_text}' -> '{tab_texts[i]}'")
+            else:
+                print("🌍 No tab buttons found!")
+            
+            # Обновляем заголовки кнопок в хедере
+            if hasattr(self, 'donate_btn'):
+                new_text = get_text("btn_support_project")
+                print(f"🌍 Setting donate button to: '{new_text}'")
+                self.donate_btn.setText(new_text)
+            if hasattr(self, 'update_btn'):
+                new_text = get_text("btn_updates")
+                print(f"🌍 Setting update button to: '{new_text}'")
+                self.update_btn.setText(new_text)
+            if hasattr(self, 'github_btn'):
+                print(f"🌍 Setting GitHub button to: 'GitHub'")
+                self.github_btn.setText("GitHub")
+            
+            # Обновляем все кнопки управления
+            if hasattr(self, 'enable_all_btn'):
+                self.enable_all_btn.setText(get_text("btn_enable_all"))
+                print(f"🌍 Updated enable_all_btn")
+            if hasattr(self, 'disable_all_btn'):
+                self.disable_all_btn.setText(get_text("btn_disable_all"))
+                print(f"🌍 Updated disable_all_btn")
+            if hasattr(self, 'refresh_btn'):
+                self.refresh_btn.setText(get_text("btn_refresh"))
+                print(f"🌍 Updated refresh_btn")
+            
+            # Обновляем поисковые поля
+            if hasattr(self, 'search_input'):
+                self.search_input.setPlaceholderText(get_text("search_placeholder"))
+                print(f"🌍 Updated main search placeholder")
+            if hasattr(self, 'pirate_search_input'):
+                self.pirate_search_input.setPlaceholderText(get_text("search_placeholder"))
+                print(f"🌍 Updated pirate search placeholder")
+            
+            # Обновляем описания вкладок
+            if hasattr(self, 'addons_description'):
+                self.addons_description.setText(get_text("addons_description_full"))
+                print(f"🌍 Updated addons description")
+            if hasattr(self, 'pirate_description'):
+                self.pirate_description.setText(get_text("pirate_addons_description_full"))
+                print(f"🌍 Updated pirate description")
+            
+            # Обновляем счетчики аддонов
+            if hasattr(self, 'addons') and self.addons:
+                enabled_count = sum(1 for a in self.addons if a.get('enabled'))
+                counter_text = get_text("addons_counter", total=len(self.addons), enabled=enabled_count)
+                print(f"🌍 Setting main counter to: '{counter_text}'")
+                self.set_counter_text(self.counter, counter_text)
+            
+            if hasattr(self, 'pirate_addons_data') and self.pirate_addons_data:
+                enabled_count = sum(1 for a in self.pirate_addons_data if a['enabled'])
+                counter_text = get_text("addons_counter", total=len(self.pirate_addons_data), enabled=enabled_count)
+                print(f"🌍 Setting pirate counter to: '{counter_text}'")
+                self.set_counter_text(self.pirate_counter, counter_text, 22)
+            
+            # Обновляем все кнопки на пиратской вкладке
+            if hasattr(self, 'add_vpk_btn'):
+                self.add_vpk_btn.setText(get_text("btn_add_vpk"))
+                print(f"🌍 Updated add_vpk_btn")
+            if hasattr(self, 'workshop_btn'):
+                self.workshop_btn.setText(get_text("download_from_workshop"))
+                print(f"🌍 Updated workshop_btn")
+            
+            # Принудительно обновляем все видимые элементы
+            self.repaint()
+            if hasattr(self, 'stack'):
+                self.stack.repaint()
+            
+            print(f"🌍 Comprehensive UI language update completed for: {self.current_language}")
+            
+        except Exception as e:
+            print(f"❌ Error updating UI language: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def update_ui_language_delayed(self):
+        """Отложенное обновление языка интерфейса после завершения всех диалогов"""
+        print(f"🌍 Delayed UI language update...")
+        
+        # Обновляем основной интерфейс
+        self.update_ui_language()
+        
+        # Обновляем все вкладки и их содержимое
+        self.update_all_tabs_content()
+        
+        # Обновляем все карточки аддонов с новым языком
+        if hasattr(self, 'addons') and self.addons:
+            try:
+                self.refresh_cards()
+                print("🌍 Cards refreshed with new language")
+            except Exception as e:
+                print(f"❌ Error refreshing cards: {e}")
+        
+        # Обновляем карточки пиратских аддонов
+        if hasattr(self, 'pirate_addons_data') and self.pirate_addons_data:
+            try:
+                self.refresh_pirate_cards()
+                print("🌍 Pirate cards refreshed with new language")
+            except Exception as e:
+                print(f"❌ Error refreshing pirate cards: {e}")
+        
+        # Принудительно обновляем все видимые элементы
+        self.repaint()
+        if hasattr(self, 'stack'):
+            self.stack.repaint()
+        
+        # Обновляем все дочерние виджеты
+        for widget in self.findChildren(QWidget):
+            widget.repaint()
+        
+        print(f"🌍 Delayed update completed")
+    
+    def update_all_tabs_content(self):
+        """Обновляет содержимое всех вкладок с новым языком"""
+        try:
+            print("🌍 Updating all tabs content...")
+            
+            # Обновляем описания вкладок
+            if hasattr(self, 'addons_description'):
+                self.addons_description.setText(get_text("addons_description_full"))
+                print("🌍 Updated addons_description")
+            
+            if hasattr(self, 'pirate_description'):
+                self.pirate_description.setText(get_text("pirate_addons_description_full"))
+                print("🌍 Updated pirate_description")
+            
+            # Обновляем все кнопки управления
+            if hasattr(self, 'enable_all_btn'):
+                self.enable_all_btn.setText(get_text("btn_enable_all"))
+                print("🌍 Updated enable_all_btn")
+            if hasattr(self, 'disable_all_btn'):
+                self.disable_all_btn.setText(get_text("btn_disable_all"))
+                print("🌍 Updated disable_all_btn")
+            if hasattr(self, 'refresh_btn'):
+                self.refresh_btn.setText(get_text("btn_refresh"))
+                print("🌍 Updated refresh_btn")
+            
+            # Обновляем кнопки пиратской вкладки
+            if hasattr(self, 'add_vpk_btn'):
+                self.add_vpk_btn.setText(get_text("btn_add_vpk"))
+                print("🌍 Updated add_vpk_btn")
+            if hasattr(self, 'workshop_btn'):
+                self.workshop_btn.setText(get_text("download_from_workshop"))
+                print("🌍 Updated workshop_btn")
+            if hasattr(self, 'pirate_enable_all_btn'):
+                self.pirate_enable_all_btn.setText(get_text("btn_enable_all"))
+                print("🌍 Updated pirate_enable_all_btn")
+            if hasattr(self, 'pirate_disable_all_btn'):
+                self.pirate_disable_all_btn.setText(get_text("btn_disable_all"))
+                print("🌍 Updated pirate_disable_all_btn")
+            if hasattr(self, 'pirate_refresh_btn'):
+                self.pirate_refresh_btn.setText(get_text("btn_refresh"))
+                print("🌍 Updated pirate_refresh_btn")
+            
+            # Обновляем поисковые поля
+            if hasattr(self, 'search_input'):
+                self.search_input.setPlaceholderText(get_text("search_placeholder"))
+                print("🌍 Updated search_input placeholder")
+            if hasattr(self, 'pirate_search_input'):
+                self.pirate_search_input.setPlaceholderText(get_text("search_placeholder"))
+                print("🌍 Updated pirate_search_input placeholder")
+            
+            # Обновляем настройки
+            if hasattr(self, 'game_path_label'):
+                self.game_path_label.setText(get_text("settings_game_path"))
+                print("🌍 Updated game_path_label")
+            if hasattr(self, 'browse_btn'):
+                self.browse_btn.setText(get_text("btn_browse_folder"))
+                print("🌍 Updated browse_btn")
+            if hasattr(self, 'restore_btn'):
+                self.restore_btn.setText(get_text("btn_restore_gameinfo"))
+                print("🌍 Updated restore_btn")
+            
+            # Обновляем статусы файлов
+            if hasattr(self, 'gameinfo_status'):
+                if hasattr(self, 'game_path') and self.game_path:
+                    gameinfo_path = self.game_path / "left4dead2" / "gameinfo.txt"
+                    if gameinfo_path.exists():
+                        self.gameinfo_status.setText(get_text("status_gameinfo_found"))
+                    else:
+                        self.gameinfo_status.setText(get_text("status_gameinfo_not_found"))
+                print("🌍 Updated gameinfo_status")
+            
+            if hasattr(self, 'workshop_status'):
+                if hasattr(self, 'game_path') and self.game_path:
+                    workshop_path = self.game_path / "steamapps" / "workshop" / "content" / "550"
+                    if workshop_path.exists():
+                        self.workshop_status.setText(get_text("status_workshop_found"))
+                    else:
+                        self.workshop_status.setText(get_text("status_workshop_not_found"))
+                print("🌍 Updated workshop_status")
+            
+            print("🌍 All tabs content updated successfully")
+            
+        except Exception as e:
+            print(f"❌ Error updating tabs content: {e}")
+            import traceback
+            traceback.print_exc()
+    
+
+    
+    def show_language_menu(self):
+        """Показывает меню выбора языка"""
+        try:
+            # Создаем контекстное меню
+            menu = QMenu(self)
+            menu.setStyleSheet("""
+                QMenu {
+                    background: #2a2a2a;
+                    border: 2px solid #3498db;
+                    border-radius: 8px;
+                    padding: 5px;
+                }
+                QMenu::item {
+                    background: transparent;
+                    color: white;
+                    padding: 8px 20px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                }
+                QMenu::item:selected {
+                    background: #3498db;
+                }
+                QMenu::item:checked {
+                    background: #2980b9;
+                    font-weight: bold;
+                }
+            """)
+            
+            # Русский язык
+            russian_action = menu.addAction("🇷🇺 Русский")
+            russian_action.setCheckable(True)
+            russian_action.setChecked(self.current_language == "ru")
+            russian_action.triggered.connect(lambda: self.change_language("ru"))
+            
+            # Английский язык
+            english_action = menu.addAction("🇺🇸 English")
+            english_action.setCheckable(True)
+            english_action.setChecked(self.current_language == "en")
+            english_action.triggered.connect(lambda: self.change_language("en"))
+            
+            # Показываем меню под кнопкой
+            button = self.sender()
+            menu.exec(button.mapToGlobal(QPoint(0, button.height())))
+            
+        except Exception as e:
+            print(f"❌ Error showing language menu: {e}")
+    
+    def change_language(self, language_code):
+        """Изменяет язык интерфейса"""
+        try:
+            if language_code == self.current_language:
+                return  # Язык уже установлен
+            
+            # Устанавливаем новый язык
+            set_language(language_code)
+            old_language = self.current_language
+            self.current_language = language_code
+            
+            # Сохраняем в конфиг
+            save_language_preference(CONFIG_FILE)
+            
+            # Обновляем индикаторы на карточках языка
+            self.update_language_indicators()
+            
+            print(f"🌍 Language changed to: {language_code}")
+            
+            # Обновляем интерфейс без перезапуска
+            print(f"🌍 Updating interface to new language: {language_code}")
+            self.update_ui_language()
+            self.update_all_tabs_content()
+            
+            # Планируем дополнительное обновление
+            QTimer.singleShot(500, self.update_ui_language_delayed)
+            
+            # Показываем уведомление об успешной смене языка
+            language_name = "English" if language_code == "en" else "Русский"
+            QTimer.singleShot(1000, lambda: self.show_language_changed_notification(language_name))
+            
+        except Exception as e:
+            print(f"❌ Error changing language: {e}")
+    
+    def show_language_changed_notification(self, language_name):
+        """Показывает уведомление об успешной смене языка"""
+        try:
+            # Создаем простое уведомление
+            from l4d2_pyqt_main import CustomInfoDialog
+            
+            message = f"Language successfully changed to {language_name}!" if self.current_language == "en" else f"Язык успешно изменен на {language_name}!"
+            title = "Language Changed" if self.current_language == "en" else "Язык изменен"
+            
+            dialog = CustomInfoDialog(self)
+            dialog.set_content(
+                title,
+                message,
+                "information"
+            )
+            
+            # Автоматически закрываем через 2 секунды
+            QTimer.singleShot(2000, dialog.accept)
+            
+            dialog.exec()
+            
+        except Exception as e:
+            print(f"❌ Error showing language notification: {e}")
+    
+    def force_quit(self):
+        """Принудительно закрывает приложение"""
+        try:
+            print("🔄 Force quitting application...")
+            
+            # Закрываем все окна
+            for widget in QApplication.topLevelWidgets():
+                widget.close()
+            
+            # Завершаем приложение
+            QApplication.instance().quit()
+            
+            # Если это не помогло, используем sys.exit
+            import sys
+            sys.exit(0)
+            
+        except Exception as e:
+            print(f"❌ Error force quitting: {e}")
+            import sys
+            sys.exit(1)
+    
+    def update_language_indicators(self):
+        """Обновляет индикаторы выбранного языка"""
+        try:
+            # Обновляем индикаторы на карточках языка
+            if hasattr(self, 'russian_lang_btn') and hasattr(self, 'english_lang_btn'):
+                for card in [self.russian_lang_btn, self.english_lang_btn]:
+                    if hasattr(card, 'language_code') and hasattr(card, 'indicator'):
+                        # Показываем галочку только для текущего языка
+                        is_current = card.language_code == self.current_language
+                        card.indicator.setText("✓" if is_current else "")
+                        print(f"🔄 Updated indicator for {card.language_code}: {'✓' if is_current else 'empty'}")
+        except Exception as e:
+            print(f"❌ Error updating language indicators: {e}")
+    
     def show_animation_warning(self):
-        """Показывает уведомление о возможных визуальных багах"""
+        """Показывает уведомление о возможных визуальных багах раз в час"""
+        # РАЗБЛОКИРУЕМ МЫШЬ когда показываем первое уведомление
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        print("✅ Mouse events unblocked for main window - notifications starting")
+        
         # Проверяем что диалог загрузки точно закрыт
         if hasattr(self, 'loading_dialog') and self.loading_dialog:
             # Если диалог загрузки еще открыт, отложим показ уведомления
             print("⏳ Loading dialog still open, delaying animation warning...")
-            QTimer.singleShot(1000, self.show_animation_warning)
+            QTimer.singleShot(300, self.show_animation_warning)
             return
         
-        print("ℹ️ Showing animation warning dialog")
+        import time
+        current_time = time.time()
+        # 1 час = 3600 секунд
+        time_since_last_warning = current_time - getattr(self, 'last_animation_warning', 0)
+        print(f"ℹ️ Animation warning check: {time_since_last_warning} seconds since last (need 3600 for 1h)")
         
-        # Показываем кастомный информационный диалог БЕЗ использования существующего blur
-        CustomInfoDialog.information(
-            self,
-            "Информация",
-            "При работе с большим количеством модов возможны визуальные баги в интерфейсе.\n\n"
-            "Если вы столкнулись с проблемами:\n"
-            "• Попробуйте переключить вкладки\n"
-            "• Нажмите кнопку 'Обновить'\n"
-            "• Перезапустите программу\n\n"
-            "Если баги повторяются, сообщите об этом:\n"
-            "📧 scalevvizard1@gmail.com",
-            use_existing_blur=False,  # НЕ используем существующий blur
-            icon_type="info"
-        )
-        # Показываем список после закрытия диалога
-        self.show_addons_list()
+        # Показываем предупреждение если прошло больше часа (или это первый запуск)
+        if time_since_last_warning >= 3600 or not hasattr(self, 'last_animation_warning'):
+            print("ℹ️ Showing animation warning dialog - once per hour")
+            
+            # Обновляем время последнего предупреждения
+            self.last_animation_warning = current_time
+            self.save_config()
+            
+            # Показываем кастомный информационный диалог БЕЗ использования существующего blur
+            CustomInfoDialog.information(
+                self,
+                get_text("information_title"),
+                get_text("interface_info_message"),
+                use_existing_blur=False,  # НЕ используем существующий blur
+                icon_type="info"
+            )
+        else:
+            print(f"ℹ️ Animation warning not shown - need to wait {3600 - time_since_last_warning:.0f} more seconds")
+        
+        # После проверки предупреждения об анимациях запускаем цепочку остальных уведомлений
+        QTimer.singleShot(200, self.check_daily_donate_reminder)
     
-    def show_addons_list(self):
-        """Показывает список аддонов и все элементы вкладки после уведомления"""
-        if hasattr(self, 'tab_header_container') and hasattr(self, 'controls_container'):
-            # Убираем любые графические эффекты с контейнера
-            if hasattr(self, 'addons_container'):
-                self.addons_container.setGraphicsEffect(None)
-                
-                # Убираем эффекты со всех карточек
-                for card in self.addons_container.findChildren(AnimatedCard):
-                    if card.graphicsEffect():
-                        card.setGraphicsEffect(None)
-            
-            # Показываем заголовок и описание вкладки
-            self.tab_header_container.setEnabled(True)  # Разблокируем события мыши
-            self.tab_header_container.show()
-            
-            # Показываем весь контейнер с элементами управления
-            self.controls_container.setEnabled(True)  # Разблокируем события мыши
-            self.controls_container.show()
-            
-            # Показываем напоминание о донатах после информационного диалога
-            QTimer.singleShot(500, self.check_daily_donate_reminder)
+
     
     def validate_game_path(self):
         """Проверяет корректность пути к игре"""
@@ -5248,18 +6287,18 @@ class MainWindow(QMainWindow):
         # Показываем уведомление если есть проблемы
         if missing_in_gameinfo:
             msg = QMessageBox(self)
-            msg.setWindowTitle("⚠ Внимание")
+            msg.setWindowTitle(get_text("attention_title"))
             msg.setText(
-                f"Найдено {len(missing_in_gameinfo)} аддонов с файлами и папками,\n"
-                f"но они не внесены в gameinfo.txt!\n\n"
-                f"ID аддонов: {', '.join(missing_in_gameinfo[:5])}"
-                f"{'...' if len(missing_in_gameinfo) > 5 else ''}\n\n"
-                f"Игра может их не загрузить."
+                get_text("missing_gameinfo_message", 
+                    count=len(missing_in_gameinfo),
+                    ids=', '.join(missing_in_gameinfo[:5]),
+                    more='...' if len(missing_in_gameinfo) > 5 else ''
+                )
             )
             msg.setIcon(QMessageBox.Icon.Warning)
             
             # Кнопки
-            btn_force = msg.addButton("Внести принудительно", QMessageBox.ButtonRole.ActionRole)
+            btn_force = msg.addButton(get_text("force_add_button"), QMessageBox.ButtonRole.ActionRole)
             btn_ok = msg.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
             
             msg.exec()
@@ -5285,7 +6324,7 @@ class MainWindow(QMainWindow):
                 break
             
             progress.setValue(i)
-            progress.setLabelText(f"Добавление: {addon_id}")
+            progress.setLabelText(get_text("adding_addon", addon_id=addon_id))
             QApplication.processEvents()
             
             try:
@@ -5298,8 +6337,8 @@ class MainWindow(QMainWindow):
         
         QMessageBox.information(
             self,
-            "Готово",
-            f"Добавлено в gameinfo.txt: {success_count} из {len(addon_ids)} аддонов"
+            get_text("ready_title"),
+            get_text("added_to_gameinfo", success=success_count, total=len(addon_ids))
         )
     
     def show_no_addons_message(self):
@@ -5347,16 +6386,14 @@ class MainWindow(QMainWindow):
         no_addons_layout.addWidget(icon_label)
         
         # Заголовок
-        title_label = QLabel("Аддоны не найдены")
+        title_label = QLabel(get_text("no_addons_found"))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("font-size: 18px; font-weight: 600; color: #d0d0d0;")
         no_addons_layout.addWidget(title_label)
         
         # Описание (минимум текста)
         desc_label = QLabel(
-            "В папке workshop нет аддонов.\n\n"
-            "Подпишитесь на моды в Steam Workshop,\n"
-            "запустите игру и нажмите 'Обновить'"
+            get_text("workshop_no_addons_desc")
         )
         desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc_label.setWordWrap(True)
@@ -5369,13 +6406,13 @@ class MainWindow(QMainWindow):
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Кнопка обновления
-        refresh_btn = AnimatedActionButton("Обновить список", "#3498db")
+        refresh_btn = AnimatedActionButton(get_text("btn_refresh_list"), "#3498db")
         refresh_btn.setFixedSize(180, 50)
         refresh_btn.clicked.connect(self.scan_addons)
         buttons_layout.addWidget(refresh_btn)
         
         # Кнопка "Что делать?"
-        help_btn = AnimatedActionButton("Что делать?", "#95a5a6")
+        help_btn = AnimatedActionButton(get_text("btn_what_to_do"), "#95a5a6")
         help_btn.setFixedSize(180, 50)
         help_btn.clicked.connect(self.show_no_addons_help)
         buttons_layout.addWidget(help_btn)
@@ -5389,7 +6426,7 @@ class MainWindow(QMainWindow):
         # Показываем контейнер и счетчик
         self.addons_container.show()
         self.addons_container.setEnabled(True)
-        self.counter.setText("Аддонов: 0 (0 вкл)")
+        self.set_counter_text(self.counter, get_text("addons_counter", total=0, enabled=0))
         self.counter.show()
     
     def show_no_pirate_addons_message(self):
@@ -5448,15 +6485,14 @@ class MainWindow(QMainWindow):
         no_addons_layout.addWidget(icon_label)
         
         # Заголовок
-        title_label = QLabel("Аддоны не найдены")
+        title_label = QLabel(get_text("no_addons_found"))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("font-size: 18px; font-weight: 600; color: #d0d0d0;")
         no_addons_layout.addWidget(title_label)
         
         # Описание (минимум текста)
         desc_label = QLabel(
-            "В папке left4dead2/addons нет модов.\n\n"
-            "Установите моды вручную или скачайте из Workshop"
+            get_text("addons_no_mods_desc")
         )
         desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc_label.setWordWrap(True)
@@ -5469,13 +6505,13 @@ class MainWindow(QMainWindow):
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Кнопка обновления
-        refresh_btn = AnimatedActionButton("Обновить список", "#3498db")
+        refresh_btn = AnimatedActionButton(get_text("btn_refresh_list"), "#3498db")
         refresh_btn.setFixedSize(180, 50)
         refresh_btn.clicked.connect(self.scan_pirate_addons)
         buttons_layout.addWidget(refresh_btn)
         
         # Кнопка "Что делать?"
-        help_btn = AnimatedActionButton("Что делать?", "#95a5a6")
+        help_btn = AnimatedActionButton(get_text("btn_what_to_do"), "#95a5a6")
         help_btn.setFixedSize(180, 50)
         help_btn.clicked.connect(self.show_no_pirate_addons_help)
         buttons_layout.addWidget(help_btn)
@@ -5489,7 +6525,7 @@ class MainWindow(QMainWindow):
         # Показываем контейнер и счетчик
         self.pirate_addons_container.show()
         self.pirate_addons_container.setEnabled(True)
-        self.pirate_counter.setText("Аддонов: 0 (0 вкл)")
+        self.set_counter_text(self.pirate_counter, get_text("addons_counter", total=0, enabled=0), 22)
         self.pirate_counter.show()
     
     def show_no_pirate_addons_help(self):
@@ -5502,16 +6538,8 @@ class MainWindow(QMainWindow):
         
         CustomInfoDialog.information(
             self,
-            "Что делать?",
-            f"Аддоны не найдены в папке addons.\n\n"
-            f"Возможные причины:\n"
-            f"• Вы еще не установили моды вручную\n"
-            f"• Папка пуста: {addons_path_str}\n\n"
-            f"Решение:\n"
-            f"1. Проверьте есть ли .vpk файлы в папке addons\n"
-            f"2. Если есть - нажмите кнопку 'Обновить список'\n"
-            f"3. Если нет - используйте кнопку 'Добавить VPK' или 'Workshop'\n"
-            f"   для установки модов из Steam Workshop",
+            get_text("no_pirate_addons_help_title"),
+            get_text("no_pirate_addons_help_message", path=addons_path_str),
             use_existing_blur=False,
             icon_type="info"
         )
@@ -5525,17 +6553,8 @@ class MainWindow(QMainWindow):
         
         CustomInfoDialog.information(
             self,
-            "Что делать?",
-            f"Аддоны не найдены в папке workshop.\n\n"
-            f"Возможные причины:\n"
-            f"• Вы не подписались на моды в Steam Workshop\n"
-            f"• Вы не запускали игру после подписки (моды не скачались)\n"
-            f"• Папка пуста: {workshop_path_str}\n\n"
-            f"Решение:\n"
-            f"1. Откройте Steam Workshop для Left 4 Dead 2\n"
-            f"2. Подпишитесь на интересующие моды\n"
-            f"3. Запустите игру и дождитесь загрузки модов\n"
-            f"4. Закройте игру и нажмите 'Обновить список' в программе"
+            get_text("no_addons_help_title"),
+            get_text("no_addons_help_message", path=workshop_path_str)
         )
     
     def scan_addons(self):
@@ -5551,12 +6570,12 @@ class MainWindow(QMainWindow):
         
         if not self.game_folder or not self.workshop_path:
             print("❌ Missing paths, cannot scan")
-            self.counter.setText("⚠ Настройте путь к игре в настройках")
+            self.set_counter_text(self.counter, get_text("configure_game_path"))
             return
             
         if not self.workshop_path.exists():
             print(f"❌ Workshop path does not exist: {self.workshop_path}")
-            self.counter.setText(f"⚠ Папка workshop не найдена: {self.workshop_path}")
+            self.set_counter_text(self.counter, get_text("workshop_folder_not_found", path=self.workshop_path))
             return
         
         # Скрываем ВСЕ элементы вкладки во время загрузки
@@ -5582,11 +6601,18 @@ class MainWindow(QMainWindow):
                 item.widget().deleteLater()
         
         self.addons = []
-        self.counter.setText("Сканирование...")
+        self.set_counter_text(self.counter, get_text("scanning_status"))
+        
+        # Отключаем анимации на время загрузки
+        self.animations_disabled = True
+        
+        # БЛОКИРУЕМ МЫШЬ для главного окна во время загрузки
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        print("🚫 Mouse events blocked for main window during loading")
         
         # Проверяем существование папки
         if not self.workshop_path.exists():
-            self.counter.setText(f"⚠ Папка workshop не найдена: {self.workshop_path}")
+            self.set_counter_text(self.counter, get_text("workshop_folder_not_found", path=self.workshop_path))
             self.loading_dialog.close()
             return
         
@@ -5628,7 +6654,7 @@ class MainWindow(QMainWindow):
         self.on_loading_finished()
         
         # Показываем сообщение об ошибке
-        self.counter.setText(f"⚠ Ошибка чтения папки: {error_msg}")
+        self.set_counter_text(self.counter, get_text("folder_read_error", error=error_msg))
     
     def on_steam_info_loaded(self, updated_addons):
         """Вызывается когда информация из Steam загружена"""
@@ -5644,7 +6670,7 @@ class MainWindow(QMainWindow):
         
         # Обновляем прогресс только если диалог еще существует
         if hasattr(self, 'loading_dialog') and self.loading_dialog:
-            self.loading_dialog.update_progress(100, "Готово!")
+            self.loading_dialog.update_progress(100, get_text("ready_status"))
         
         # Закрываем диалог загрузки НЕМЕДЛЕННО
         self.on_loading_finished()
@@ -5683,54 +6709,64 @@ class MainWindow(QMainWindow):
         # Сбрасываем состояние всех виджетов
         self.reset_widget_states()
         
-        # Показываем элементы интерфейса
-        self.tab_header_container.setEnabled(True)
-        self.tab_header_container.show()
-        self.controls_container.setEnabled(True)
-        self.controls_container.show()
-        
         # Обновляем счетчик аддонов
         if hasattr(self, 'addons') and self.addons:
             enabled_count = sum(1 for a in self.addons if a.get('enabled'))
-            self.counter.setText(f"Аддонов: {len(self.addons)} ({enabled_count} вкл)")
+            self.set_counter_text(self.counter, get_text("addons_counter", total=len(self.addons), enabled=enabled_count))
         
         # Проверяем синхронизацию с gameinfo.txt
         self.check_gameinfo_sync()
         
-        # Показываем уведомление об анимациях только при первом запуске
-        if self.first_launch:
-            print("🎯 First launch detected, will show animation warning after loading completes")
-            # Элементы вкладки покажутся после закрытия уведомления
-            # Увеличиваем задержку чтобы диалог загрузки точно закрылся
-            QTimer.singleShot(3000, self.show_animation_warning)
-            self.first_launch = False  # Больше не показываем
-        else:
-            # При обновлении сразу показываем все элементы вкладки
-            self.tab_header_container.setEnabled(True)  # Разблокируем события мыши
-            self.tab_header_container.show()
-            self.controls_container.setEnabled(True)  # Разблокируем события мыши
-            self.controls_container.show()
+        # Показываем все уведомления при каждом запуске
+        print("🎯 Scheduling all notifications after loading completes")
+        
+        # Сначала показываем предупреждение об анимациях
+        # Минимальная задержка чтобы диалог загрузки закрылся
+        QTimer.singleShot(200, self.show_animation_warning)
+        
+        # ТАЙМЕР БЕЗОПАСНОСТИ: разблокируем мышь через 5 секунд в любом случае
+        QTimer.singleShot(5000, self.emergency_unblock_mouse)
+        
+        # Элементы вкладки покажутся после закрытия всех уведомлений
+        # Пока не показываем их, они появятся после последнего диалога
             
         # Финальная очистка событий
         QApplication.processEvents()
     
+    def emergency_unblock_mouse(self):
+        """Экстренная разблокировка мыши если что-то пошло не так"""
+        try:
+            if self.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
+                self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+                print("🚨 Emergency mouse unblock activated - 5 seconds timeout reached")
+        except Exception as e:
+            print(f"❌ Error in emergency mouse unblock: {e}")
+    
     def reset_widget_states(self):
         """Сбрасывает состояние всех виджетов после загрузки"""
         try:
-            # Сбрасываем состояние hover для всех карточек аддонов
-            if hasattr(self, 'addon_cards_container'):
-                for i in range(self.addon_cards_container.count()):
-                    widget = self.addon_cards_container.itemAt(i).widget()
-                    if widget and hasattr(widget, 'leaveEvent'):
+            print("🔄 Resetting widget states...")
+            
+            # Сбрасываем состояние hover для всех карточек аддонов (если они уже созданы)
+            if hasattr(self, 'addons_layout'):
+                for i in range(self.addons_layout.count()):
+                    widget = self.addons_layout.itemAt(i).widget()
+                    if isinstance(widget, AnimatedCard):
                         # Принудительно вызываем leaveEvent для сброса hover состояния
                         fake_event = QEvent(QEvent.Type.Leave)
                         widget.leaveEvent(fake_event)
+                        
+                        # Убираем графические эффекты
+                        if widget.graphicsEffect():
+                            widget.setGraphicsEffect(None)
             
             # Сбрасываем курсор мыши
             self.setCursor(Qt.CursorShape.ArrowCursor)
             
             # Принудительно обновляем все виджеты
             self.update()
+            
+            print("✅ Widget states reset")
             
         except Exception as e:
             print(f"❌ Ошибка сброса состояния виджетов: {e}")
@@ -5825,7 +6861,38 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
         
         enabled_count = sum(1 for a in self.addons if a.get('enabled'))
-        self.counter.setText(f"Аддонов: {len(self.addons)} ({enabled_count} вкл)")
+        self.set_counter_text(self.counter, get_text("addons_counter", total=len(self.addons), enabled=enabled_count))
+        
+        # Принудительно сбрасываем hover состояния всех карточек после создания
+        QTimer.singleShot(100, self.force_reset_card_states)
+    
+    def force_reset_card_states(self):
+        """Принудительно сбрасывает hover состояния всех карточек аддонов"""
+        try:
+            print("🔄 Force resetting card hover states...")
+            
+            # Временно отключаем анимации для гарантированного сброса
+            was_disabled = getattr(self, 'animations_disabled', False)
+            self.animations_disabled = True
+            
+            # Сбрасываем состояния всех карточек
+            if hasattr(self, 'addons_layout'):
+                for i in range(self.addons_layout.count()):
+                    widget = self.addons_layout.itemAt(i).widget()
+                    if isinstance(widget, AnimatedCard):
+                        # Используем новый метод принудительного сброса
+                        widget.force_reset_state()
+            
+            # Обрабатываем события
+            QApplication.processEvents()
+            
+            # Восстанавливаем предыдущее состояние анимаций
+            self.animations_disabled = was_disabled
+            
+            print("✅ Card hover states reset successfully")
+            
+        except Exception as e:
+            print(f"❌ Error resetting card states: {e}")
     
     def load_steam_info_with_progress(self, loading_dialog):
         """Загружает информацию из Steam Workshop API с прогрессом"""
@@ -5881,12 +6948,12 @@ class MainWindow(QMainWindow):
                         for addon in self.addons:
                             if addon['id'] == addon_id:
                                 addon['name'] = f'Аддон {addon_id} (недоступен)'
-                                addon['description'] = 'Этот аддон был удален из Workshop или недоступен'
+                                addon['description'] = get_text("addon_removed_description")
                                 break
                     
                     # Обновляем прогресс
                     progress = 50 + int((idx + 1) / total * 40)
-                    loading_dialog.update_progress(progress, f"Загружено: {idx + 1}/{total}")
+                    loading_dialog.update_progress(progress, get_text("loaded_progress", current=idx + 1, total=total))
                     
                     # Обрабатываем события каждые 5 аддонов
                     if idx % 5 == 0:
@@ -5897,7 +6964,7 @@ class MainWindow(QMainWindow):
                 # Перерисовываем карточки с новой информацией
                 self.refresh_cards()
                 
-                loading_dialog.update_progress(100, "Готово!")
+                loading_dialog.update_progress(100, get_text("ready_status"))
                 QTimer.singleShot(500, loading_dialog.close)
         
         except Exception as e:
@@ -6022,7 +7089,7 @@ class MainWindow(QMainWindow):
             
             # Обновляем счетчик
             enabled_count = sum(1 for a in self.addons if a.get('enabled'))
-            self.counter.setText(f"Аддонов: {len(self.addons)} ({enabled_count} вкл)")
+            self.set_counter_text(self.counter, get_text("addons_counter", total=len(self.addons), enabled=enabled_count))
             
             # Проверяем синхронизацию с gameinfo.txt
             self.check_gameinfo_sync()
@@ -6048,7 +7115,7 @@ class MainWindow(QMainWindow):
     def enable_addon(self, addon):
         """Включает аддон (правильная логика из оригинала)"""
         if not self.gameinfo_path or not self.workshop_path:
-            QMessageBox.warning(self, "Ошибка", "Настройте путь к игре")
+            QMessageBox.warning(self, get_text("error_title"), get_text("configure_game_path_short"))
             return
         
         try:
@@ -6074,7 +7141,7 @@ class MainWindow(QMainWindow):
             self.add_to_gameinfo(mod_id)
             
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось включить аддон: {e}")
+            QMessageBox.critical(self, get_text("error_title"), get_text("addon_enable_error", error=str(e)))
     
     def disable_addon(self, addon):
         """Выключает аддон (правильная логика из оригинала)"""
@@ -6090,7 +7157,7 @@ class MainWindow(QMainWindow):
                 shutil.rmtree(addon_dir)
             
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось выключить аддон: {e}")
+            QMessageBox.critical(self, get_text("error_title"), get_text("addon_disable_error", error=str(e)))
     
     def add_to_gameinfo(self, addon_id):
         """Добавляет аддон в gameinfo.txt"""
@@ -6171,9 +7238,9 @@ class MainWindow(QMainWindow):
         
         # Обновляем tooltip
         if self.is_pirate_two_column_mode:
-            self.pirate_view_toggle_btn.setToolTip("Переключить на 1 столбец")
+            self.pirate_view_toggle_btn.setToolTip(get_text("tooltip_switch_to_single"))
         else:
-            self.pirate_view_toggle_btn.setToolTip("Переключить на 2 столбца")
+            self.pirate_view_toggle_btn.setToolTip(get_text("tooltip_switch_to_double"))
         
         # Пересоздаём layout (удаляя старые карточки, т.к. они имеют неправильный размер)
         self.recreate_pirate_addons_layout_with_delete()
@@ -6251,13 +7318,13 @@ class MainWindow(QMainWindow):
         # Используем кастомный диалог
         if not CustomConfirmDialog.question(
             self,
-            "Подтверждение",
-            f"Включить все аддоны ({len(self.addons)} шт.)?"
+            get_text("confirmation_title"),
+            get_text("confirm_enable_all", count=len(self.addons))
         ):
             return
         
         # Показываем кастомный прогресс (0-100%)
-        progress = CustomProgressDialog(self, "Включение аддонов...", "Отмена", 0, 100)
+        progress = CustomProgressDialog(self, get_text("enabling_addons"), get_text("btn_cancel"), 0, 100)
         progress.show()
         
         total = len(self.addons)
@@ -6268,7 +7335,7 @@ class MainWindow(QMainWindow):
             # Конвертируем в проценты (0-100)
             percent = int((i / total) * 100)
             progress.setValue(percent)
-            progress.setLabelText(f"Включение: {addon['name']}\n({i+1} из {total})")
+            progress.setLabelText(get_text("enabling_addon", name=addon['name'], current=i+1, total=total))
             QApplication.processEvents()
             
             if not addon.get('enabled'):
@@ -6290,7 +7357,7 @@ class MainWindow(QMainWindow):
         time.sleep(0.35)
         
         # Показываем кастомное информационное окно (используем существующий блюр)
-        CustomInfoDialog.information(self, "Готово", f"Включено аддонов: {len(self.addons)}", use_existing_blur=True, icon_type="success")
+        CustomInfoDialog.information(self, get_text("ready_title"), get_text("enabled_addons_count", count=len(self.addons)), use_existing_blur=True, icon_type="success")
     
     def disable_all_addons(self):
         """Выключает все аддоны и удаляет их папки"""
@@ -6300,20 +7367,20 @@ class MainWindow(QMainWindow):
         # Используем кастомный диалог
         if not CustomConfirmDialog.question(
             self,
-            "Подтверждение",
-            f"Выключить все аддоны ({len(self.addons)} шт.) и удалить их папки?"
+            get_text("confirmation_title"),
+            get_text("confirm_disable_all", count=len(self.addons))
         ):
             return
         
         # Показываем кастомный прогресс (0-100%)
-        progress = CustomProgressDialog(self, "Выключение аддонов...", "Отмена", 0, 100)
+        progress = CustomProgressDialog(self, get_text("disabling_addons"), get_text("btn_cancel"), 0, 100)
         progress.show()
         
         total = len(self.addons)
         
         # Восстанавливаем gameinfo из бэкапа (0-10%)
         progress.setValue(0)
-        progress.setLabelText("Восстановление gameinfo.txt...")
+        progress.setLabelText(get_text("restoring_gameinfo"))
         QApplication.processEvents()
         
         try:
@@ -6334,8 +7401,8 @@ class MainWindow(QMainWindow):
             
             CustomInfoDialog.information(
                 self, 
-                "Ошибка", 
-                f"Не удалось восстановить gameinfo.txt: {e}",
+                get_text("error_title"), 
+                get_text("gameinfo_restore_error", error=str(e)),
                 use_existing_blur=True,
                 icon_type="error"
             )
@@ -6354,7 +7421,7 @@ class MainWindow(QMainWindow):
             # Конвертируем в проценты (10-100)
             percent = int(10 + (i / total) * 90)
             progress.setValue(percent)
-            progress.setLabelText(f"Удаление папки: {addon['id']}\n({i+1} из {total})")
+            progress.setLabelText(get_text("deleting_folder", addon_id=addon['id'], current=i+1, total=total))
             QApplication.processEvents()
             
             try:
@@ -6382,15 +7449,15 @@ class MainWindow(QMainWindow):
         time.sleep(0.35)
         
         # Показываем кастомное информационное окно (используем существующий блюр)
-        CustomInfoDialog.information(self, "Готово", f"Все аддоны выключены и удалены.", use_existing_blur=True, icon_type="success")
+        CustomInfoDialog.information(self, get_text("ready_title"), get_text("all_addons_disabled"), use_existing_blur=True, icon_type="success")
     
     def add_vpk_to_addons(self):
         """Добавляет .vpk файл в папку addons/ (для пиратки)"""
         if not self.game_folder:
             CustomInfoDialog.information(
                 self, 
-                "Ошибка", 
-                "Сначала укажите папку с игрой в настройках",
+                get_text("error_title"), 
+                get_text("specify_game_folder_error"),
                 icon_type="error"
             )
             return
@@ -6413,8 +7480,8 @@ class MainWindow(QMainWindow):
         # Кастомный прогресс-диалог
         progress = CustomProgressDialog(
             self,
-            "Копирование файлов...",
-            "Отмена",
+            get_text("copying_files"),
+            get_text("btn_cancel"),
             0,
             100
         )
@@ -6434,7 +7501,7 @@ class MainWindow(QMainWindow):
             vpk_path = Path(vpk_file)
             percent = int((i / total) * 100)
             progress.setValue(percent)
-            progress.setLabelText(f"Копирование: {vpk_path.name}\n({i+1} из {total})")
+            progress.setLabelText(get_text("copying_file", filename=vpk_path.name, current=i+1, total=total))
             QApplication.processEvents()
             
             try:
@@ -6448,8 +7515,8 @@ class MainWindow(QMainWindow):
                     # Используем кастомный диалог подтверждения БЕЗ создания нового blur
                     reply = CustomConfirmDialog.question(
                         self,
-                        "Файл существует",
-                        f"Файл {vpk_path.name} уже существует в папке addons.\n\nЗаменить его?",
+                        get_text("file_exists_title"),
+                        get_text("file_exists_message", filename=vpk_path.name),
                         use_existing_blur=False  # Создаем свой blur т.к. прогресс скрыт
                     )
                     
@@ -6490,11 +7557,12 @@ class MainWindow(QMainWindow):
         time.sleep(0.35)
         
         # Результат
-        result_msg = f"Успешно установлено: {success_count} из {total} файлов\n\n"
-        if skipped_count > 0:
-            result_msg += f"Пропущено: {skipped_count}\n\n"
-        result_msg += f"Путь: {addons_dir}\n\n"
-        result_msg += "Моды будут загружаться автоматически при запуске игры.\n"
+        result_msg = get_text("install_result", 
+            success=success_count, 
+            total=total, 
+            skipped=skipped_count if skipped_count > 0 else 0,
+            path=addons_dir
+        )
         result_msg += "Активируйте их в меню Add-ons в игре."
         
         if failed_files:
@@ -6505,7 +7573,7 @@ class MainWindow(QMainWindow):
             # Если есть ошибки - показываем с иконкой ошибки
             CustomInfoDialog.information(
                 self, 
-                "Установка завершена с ошибками", 
+                get_text("installation_completed_errors"), 
                 result_msg,
                 use_existing_blur=True,
                 icon_type="error"
@@ -6514,7 +7582,7 @@ class MainWindow(QMainWindow):
             # Если все успешно - показываем с зеленой галочкой
             CustomInfoDialog.information(
                 self, 
-                "Установка завершена", 
+                get_text("installation_completed"), 
                 result_msg,
                 use_existing_blur=True,
                 icon_type="success"
@@ -6544,12 +7612,8 @@ class MainWindow(QMainWindow):
             # Используем существующий блюр
             dialog = CustomConfirmDialog(
                 self,
-                "Установить SteamCMD?",
-                f"Для автоматического скачивания модов нужен SteamCMD.\n\n"
-                f"Скачать и установить SteamCMD автоматически?\n"
-                f"(Размер: ~3 МБ, требуется 250 МБ свободного места)\n\n"
-                f"Путь установки:\n{steamcmd_path}\n\n"
-                f"Нажмите 'Нет' чтобы выбрать другую папку",
+                get_text("install_steamcmd_title"),
+                get_text("install_steamcmd_confirm") + "\n\n" + get_text("steamcmd_install_details", path=steamcmd_path),
                 use_existing_blur=True
             )
             reply_code = dialog.exec()
@@ -6563,12 +7627,8 @@ class MainWindow(QMainWindow):
             # Создаём новый блюр
             reply = CustomConfirmDialog.question(
                 self,
-                "Установить SteamCMD?",
-                f"Для автоматического скачивания модов нужен SteamCMD.\n\n"
-                f"Скачать и установить SteamCMD автоматически?\n"
-                f"(Размер: ~3 МБ, требуется 250 МБ свободного места)\n\n"
-                f"Путь установки:\n{steamcmd_path}\n\n"
-                f"Нажмите 'Нет' чтобы выбрать другую папку"
+                get_text("install_steamcmd_title"),
+                get_text("install_steamcmd_confirm") + "\n\n" + get_text("steamcmd_install_details", path=steamcmd_path)
             )
         
         if reply is None or (not use_existing_blur and reply is False):
@@ -6613,7 +7673,7 @@ class MainWindow(QMainWindow):
             # URL для скачивания SteamCMD
             steamcmd_url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
             
-            progress.setLabelText("Скачивание SteamCMD...")
+            progress.setLabelText(get_text("downloading_steamcmd_simple"))
             progress.setValue(20)
             QApplication.processEvents()
             
@@ -6660,15 +7720,18 @@ class MainWindow(QMainWindow):
                         total_str = format_bytes(total_size)
                         
                         progress.setLabelText(
-                            f"Скачивание SteamCMD...\n"
-                            f"{downloaded_str} / {total_str} ({speed_str})"
+                            get_text("downloading_steamcmd", 
+                                downloaded=downloaded_str, 
+                                total=total_str, 
+                                speed=speed_str
+                            )
                         )
                     
                     QApplication.processEvents()
             
             urllib.request.urlretrieve(steamcmd_url, zip_path, download_progress)
             
-            progress.setLabelText("Распаковка SteamCMD...")
+            progress.setLabelText(get_text("extracting_steamcmd"))
             progress.setValue(65)
             QApplication.processEvents()
             
@@ -6680,7 +7743,7 @@ class MainWindow(QMainWindow):
                 zip_ref.extractall(steamcmd_path)
             
             progress.setValue(80)
-            progress.setLabelText("Инициализация SteamCMD...\n(Это может занять несколько минут при первом запуске)")
+            progress.setLabelText(get_text("steamcmd_first_run"))
             QApplication.processEvents()
             
             # Первый запуск SteamCMD для инициализации
@@ -6726,8 +7789,7 @@ class MainWindow(QMainWindow):
                 
                 # Показываем простое сообщение без технических деталей
                 progress.setLabelText(
-                    f"Инициализация SteamCMD...\n"
-                    f"Подождите... ({int(elapsed)}с)"
+                    get_text("steamcmd_wait", seconds=int(elapsed))
                 )
                 
                 # Обрабатываем события интерфейса чаще
@@ -6763,9 +7825,8 @@ class MainWindow(QMainWindow):
             # Показываем успешное сообщение и ждём его закрытия
             CustomInfoDialog.information(
                 self,
-                "Успешно!",
-                "SteamCMD успешно установлен!\n\n"
-                "Теперь вы можете скачивать моды автоматически.",
+                get_text("success_title"),
+                get_text("steamcmd_success_message"),
                 use_existing_blur=True,
                 icon_type="success"
             )
@@ -6787,12 +7848,11 @@ class MainWindow(QMainWindow):
                 import time
                 time.sleep(0.35)
             
-            if "Отменено" not in str(e):
+            if get_text("cancelled_text") not in str(e):
                 CustomInfoDialog.information(
                     self,
-                    "Ошибка установки",
-                    f"Не удалось установить SteamCMD:\n{str(e)}\n\n"
-                    f"Вы можете скачать его вручную с:\n"
+                    get_text("installation_error_title"),
+                    get_text("steamcmd_error_message", error=str(e)),
                     f"https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip\n\n"
                     f"И распаковать в папку программы.",
                     use_existing_blur=has_progress and use_existing_blur
@@ -6823,9 +7883,9 @@ class MainWindow(QMainWindow):
             print(f"[DEBUG] steamcmd_exe = {steamcmd_exe}")
         except Exception as e:
             import traceback
-            error_msg = f"Ошибка в начале auto_download_workshop_addon:\n{str(e)}\n\n{traceback.format_exc()}"
+            error_msg = get_text("download_error_start", error=str(e), traceback=traceback.format_exc())
             print(error_msg)
-            CustomInfoDialog.information(self, "Ошибка", f"Произошла ошибка:\n{str(e)}", icon_type="error")
+            CustomInfoDialog.information(self, get_text("error_title"), get_text("unexpected_error", error=str(e)), icon_type="error")
             return
         
         # Формируем префикс для серии модов и вычисляем базовый прогресс
@@ -6867,7 +7927,7 @@ class MainWindow(QMainWindow):
         
         try:
             # Получаем информацию о моде
-            progress.setLabelText(f"{batch_prefix}Получение информации о моде...")
+            progress.setLabelText(f"{batch_prefix}{get_text('getting_mod_info')}")
             progress.setValue(base_progress + int(20 * progress_multiplier))
             QApplication.processEvents()
             
@@ -6892,7 +7952,7 @@ class MainWindow(QMainWindow):
             temp_dir = Path(tempfile.mkdtemp())
             download_path = temp_dir / addon_id
             
-            progress.setLabelText(f"{batch_prefix}Запуск SteamCMD...")
+            progress.setLabelText(f"{batch_prefix}{get_text('starting_steamcmd')}")
             progress.setValue(base_progress + int(30 * progress_multiplier))
             QApplication.processEvents()
             
@@ -6953,7 +8013,7 @@ class MainWindow(QMainWindow):
             reader_thread.start()
             
             # Ждём завершения с обновлением прогресса
-            status_text = "Инициализация SteamCMD..."
+            status_text = get_text("steamcmd_initializing")
             is_downloading = False
             download_folder = steamcmd_path / "steamapps" / "workshop" / "downloads" / "550" / addon_id
             content_folder = steamcmd_path / "steamapps" / "workshop" / "content" / "550" / addon_id
@@ -6990,11 +8050,8 @@ class MainWindow(QMainWindow):
                                 
                                 QTimer.singleShot(350, lambda: CustomInfoDialog.information(
                                     self,
-                                    "Недостаточно места на диске",
-                                    "SteamCMD требует минимум 250 МБ свободного места на диске для работы.\n\n"
-                                    "Что делать:\n"
-                                    "1. Освободите место на диске (минимум 250 МБ)\n"
-                                    "2. Удалите папку SteamCMD из программы\n"
+                                    get_text("insufficient_disk_space"),
+                                    get_text("steamcmd_disk_space_message"),
                                     "3. Переустановите SteamCMD заново\n\n"
                                     "После этого попробуйте скачать моды снова.",
                                     use_existing_blur=True
@@ -7013,8 +8070,8 @@ class MainWindow(QMainWindow):
                                 else:
                                     QTimer.singleShot(350, lambda msg=error_msg: CustomInfoDialog.information(
                                         self,
-                                        "Ошибка SteamCMD",
-                                        f"Произошла критическая ошибка:\n\n{msg}",
+                                        get_text("steamcmd_error_title"),
+                                        get_text("steamcmd_critical_error", error=msg),
                                         use_existing_blur=True
                                     ))
                                     return
@@ -7124,7 +8181,7 @@ class MainWindow(QMainWindow):
                             
                             if folder_size > 0 and not download_started:
                                 download_started = True
-                                progress.setLabelText(f"{batch_prefix}Распаковка файлов...")
+                                progress.setLabelText(f"{batch_prefix}{get_text('extracting_files')}")
                         
                         # Обновляем статус в зависимости от размера
                         if folder_size > 0:
@@ -7178,12 +8235,12 @@ class MainWindow(QMainWindow):
                             
                             last_folder_size = folder_size
                         else:
-                            # Папка пустая или не существует - показываем статус ожидания
+                            # Folder is empty or doesn't exist - show waiting status
                             if not download_started:
                                 # Считаем сколько времени прошло с начала
                                 elapsed = current_time - last_update_time
                                 if elapsed > 3:  # Если прошло больше 3 секунд
-                                    progress.setLabelText(f"{batch_prefix}Ожидание данных от SteamCMD...")
+                                    progress.setLabelText(f"{batch_prefix}{get_text('waiting_steamcmd_data')}")
                         
                         last_folder_check = current_time
                     except Exception as e:
@@ -7200,7 +8257,7 @@ class MainWindow(QMainWindow):
             process.wait()
             
             progress.setValue(base_progress + int(72 * progress_multiplier))
-            progress.setLabelText(f"{batch_prefix}Завершение...")
+            progress.setLabelText(f"{batch_prefix}{get_text('finishing_download')}")
             QApplication.processEvents()
             
             # Даем SteamCMD время переместить файлы
@@ -7382,9 +8439,9 @@ class MainWindow(QMainWindow):
                 if batch_info:
                     # Более информативное сообщение об ошибке
                     if "downloads" in diagnostic_text and "MB" in diagnostic_text:
-                        raise Exception(f"Таймаут скачивания (файлы найдены, но не завершены)")
+                        raise Exception(get_text("download_timeout_error"))
                     else:
-                        raise Exception(f"Мод недоступен или удален из Workshop")
+                        raise Exception(get_text("mod_unavailable_or_removed"))
                 else:
                     # Если одиночное скачивание - показываем ошибку
                     progress.close_keeping_blur()
@@ -7397,28 +8454,28 @@ class MainWindow(QMainWindow):
                         timeout_seconds = timeout_used // 2
                         
                         error_message = (
-                            f"Скачивание мода {addon_id} не завершилось за {timeout_seconds} секунд.\n\n"
-                            f"Диагностика:\n{diagnostic_text}\n\n"
-                            f"Что делать:\n"
-                            f"• Попробуйте скачать мод еще раз\n"
-                            f"• Проверьте скорость интернета\n"
-                            f"• Для очень больших модов (>1GB) может потребоваться больше времени\n"
-                            f"• Попробуйте скачать через Steam Workshop напрямую"
+                            f"{get_text('download_timeout_seconds', addon_id=addon_id, timeout_seconds=timeout_seconds)}\n\n"
+                            f"{get_text('diagnostics')}\n{diagnostic_text}\n\n"
+                            f"{get_text('what_to_do')}\n"
+                            f"{get_text('try_download_again')}\n"
+                            f"{get_text('check_internet_speed')}\n"
+                            f"{get_text('large_mods_time')}\n"
+                            f"{get_text('workshop_download_direct')}"
                         )
                     else:
-                        error_title = "Мод недоступен"
+                        error_title = get_text("mod_unavailable_title")
                         error_message = (
-                            f"Не удалось скачать мод {addon_id}.\n\n"
-                            f"Диагностика:\n{diagnostic_text}\n\n"
-                            f"Наиболее вероятные причины:\n"
-                            f"• Мод удалён автором из Workshop\n"
-                            f"• Мод стал приватным или скрытым\n"
-                            f"• Мод заблокирован в вашем регионе\n"
-                            f"• Проблемы с подключением к Steam\n\n"
-                            f"Что делать:\n"
-                            f"• Проверьте мод на Workshop (откройте в браузере)\n"
-                            f"• Если мод существует, попробуйте скачать через Steam\n"
-                            f"• Если мод удален, найдите альтернативу"
+                            f"{get_text('failed_to_download_mod', addon_id=addon_id)}\n\n"
+                            f"{get_text('diagnostics')}\n{diagnostic_text}\n\n"
+                            f"{get_text('most_likely_causes')}\n"
+                            f"{get_text('workshop_mod_removed')}\n"
+                            f"{get_text('workshop_mod_private')}\n"
+                            f"{get_text('workshop_mod_blocked')}\n"
+                            f"{get_text('workshop_connection_issues')}\n\n"
+                            f"{get_text('what_to_do')}\n"
+                            f"{get_text('workshop_check_browser')}\n"
+                            f"{get_text('workshop_try_steam')}\n"
+                            f"{get_text('workshop_find_alternative')}"
                         )
                     
                     QTimer.singleShot(350, lambda: CustomInfoDialog.information(
@@ -7430,7 +8487,7 @@ class MainWindow(QMainWindow):
                     return
             
             progress.setValue(base_progress + int(75 * progress_multiplier))
-            progress.setLabelText(f"{batch_prefix}Поиск VPK файлов...")
+            progress.setLabelText(f"{batch_prefix}{get_text('searching_vpk_files')}")
             QApplication.processEvents()
             
             # Копируем файлы в папку addons
@@ -7450,7 +8507,7 @@ class MainWindow(QMainWindow):
             except:
                 pass
             
-            print(f"[DEBUG] Найдено .vpk файлов: {len(vpk_files)}")
+            print(f"[DEBUG] {get_text('found_vpk_files_debug', count=len(vpk_files))}")
             
             # Если .vpk не найдены, ищем .bin файлы (формат SteamCMD)
             if not vpk_files:
@@ -7516,7 +8573,7 @@ class MainWindow(QMainWindow):
                         file_types_str = ", ".join([f"{ext or '[без расширения]'}: {count}" for ext, count in sorted(file_types.items())])
                         
                         if not all_files:
-                            file_list = "Папка пустая"
+                            file_list = get_text("folder_empty")
                             file_stats = ""
                         else:
                             file_list = "\n".join(all_files)
@@ -7532,7 +8589,7 @@ class MainWindow(QMainWindow):
                     
                     # Если это batch скачивание - просто выбрасываем исключение
                     if batch_info:
-                        raise Exception(f"Не найдено VPK файлов (найдено: {file_types_str})")
+                        raise Exception(get_text("no_vpk_found_batch", types=file_types_str))
                     else:
                         # Если одиночное скачивание - показываем ошибку
                         progress.close_keeping_blur()
@@ -7544,29 +8601,29 @@ class MainWindow(QMainWindow):
                         
                         # Определяем тип контента для более точного сообщения
                         if '.txt' in file_types or '.md' in file_types:
-                            content_type = "Возможно, это описание или документация"
+                            content_type = get_text("possibly_description")
                         elif '.jpg' in file_types or '.png' in file_types:
-                            content_type = "Возможно, это изображения или превью"
+                            content_type = get_text("possibly_images")
                         elif not file_types:
-                            content_type = "Папка пустая или содержит только подпапки"
+                            content_type = get_text("folder_empty_subfolders")
                         else:
-                            content_type = "Неизвестный тип контента"
+                            content_type = get_text("unknown_content_type")
                         
                         CustomInfoDialog.information(
                             self,
-                            "VPK файлы не найдены",
-                            f"В скачанном моде не найдено .vpk или .bin файлов\n\n"
-                            f"Найденные файлы:\n{file_list}{file_stats}\n\n"
+                            get_text("vpk_files_not_found"),
+                            f"{get_text('no_vpk_bin_files_found')}\n\n"
+                            f"{get_text('found_files')}\n{file_list}{file_stats}\n\n"
                             f"{content_type}\n\n"
-                            f"Возможные причины:\n"
-                            f"• Это коллекция модов (не содержит файлов)\n"
-                            f"• Мод имеет другой формат (карта, кампания)\n"
-                            f"• Мод поврежден или скачивание не завершилось\n"
-                            f"• Это не игровой контент (описание, скриншоты)\n\n"
-                            f"Что делать:\n"
-                            f"• Проверьте мод на Workshop\n"
-                            f"• Попробуйте скачать через Steam напрямую\n"
-                            f"• Если это коллекция, скачайте моды из неё по отдельности",
+                            f"{get_text('possible_causes')}\n"
+                            f"{get_text('mod_collection_no_files')}\n"
+                            f"{get_text('mod_different_format')}\n"
+                            f"{get_text('mod_corrupted')}\n"
+                            f"{get_text('not_game_content')}\n\n"
+                            f"{get_text('what_to_do')}\n"
+                            f"{get_text('check_mod_workshop')}\n"
+                            f"{get_text('download_steam_direct')}\n"
+                            f"{get_text('collection_download_separate')}",
                             use_existing_blur=True
                         )
                         return
@@ -7584,13 +8641,13 @@ class MainWindow(QMainWindow):
                 safe_name = f'addon_{addon_id}'
             
             progress.setValue(base_progress + int(80 * progress_multiplier))
-            progress.setLabelText(f"{batch_prefix}Копирование файлов...")
+            progress.setLabelText(f"{batch_prefix}{get_text('copying_files')}")
             QApplication.processEvents()
             
             copied_files = []
             for i, vpk_file in enumerate(vpk_files):
                 # Показываем какой файл копируем
-                progress.setLabelText(f"{batch_prefix}Копирование файлов... ({i+1}/{len(vpk_files)})")
+                progress.setLabelText(f"{batch_prefix}{get_text('copying_files_progress', current=i+1, total=len(vpk_files))}")
                 QApplication.processEvents()
                 
                 if len(vpk_files) == 1:
@@ -7623,7 +8680,7 @@ class MainWindow(QMainWindow):
                         return f"{bytes_val / (1024 * 1024):.2f} MB"
                 
                 size_str = format_bytes(file_size)
-                progress.setLabelText(f"{batch_prefix}Копирование файлов... ({i+1}/{len(vpk_files)})\n{size_str}")
+                progress.setLabelText(f"{batch_prefix}{get_text('copying_files_with_size', current=i+1, total=len(vpk_files), size=size_str)}")
                 
                 shutil.copy2(vpk_file, dest_file)
                 copied_files.append(new_name)
@@ -7634,7 +8691,7 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
             
             progress.setValue(base_progress + int(95 * progress_multiplier))
-            progress.setLabelText(f"{batch_prefix}Обновление списка...")
+            progress.setLabelText(f"{batch_prefix}{get_text('updating_list')}")
             QApplication.processEvents()
             
             # Обновляем список пиратских аддонов
@@ -7659,10 +8716,9 @@ class MainWindow(QMainWindow):
                 files_list = "\n".join(copied_files)
                 QTimer.singleShot(350, lambda: CustomInfoDialog.information(
                     self,
-                    "Успешно!",
-                    f"Мод '{addon_name}' успешно скачан и установлен!\n\n"
-                    f"Скопировано файлов: {len(copied_files)}\n"
-                    f"Перейдите на вкладку 'Аддоны Пиратка' для управления.",
+                    get_text("success_title"),
+                    get_text("mod_download_success", name=addon_name, count=len(copied_files), path=str(dest_file.parent)),
+                    get_text("go_to_pirate_tab"),
                     use_existing_blur=True
                 ))
             
@@ -7684,16 +8740,16 @@ class MainWindow(QMainWindow):
             # Формируем понятное сообщение об ошибке
             error_msg = str(e)
             if "WinError" in error_msg and "123" in error_msg:
-                error_msg = "Синтаксическая ошибка в имени файла, имени папки или метке тома.\n\nВозможные причины:\n• Название мода содержит недопустимые символы\n• Путь к файлу слишком длинный\n• Проблема с кодировкой имени файла\n\nПопробуйте ручной способ через браузер."
+                error_msg = get_text("syntax_error_filename")
             else:
-                error_msg = f"Не удалось скачать мод автоматически:\n{error_msg}\n\nПопробуйте ручной способ через браузер."
+                error_msg = get_text("failed_download_auto", error=error_msg)
             
             # Показываем ошибку только если это не batch скачивание
             # При batch ошибки будут показаны в итоговом сообщении
             if not batch_info:
                 CustomInfoDialog.information(
                     self,
-                    "Ошибка",
+                    get_text("error_title"),
                     error_msg,
                     use_existing_blur=True if 'progress' in locals() else False
                 )
@@ -7883,8 +8939,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             CustomInfoDialog.information(
                 self,
-                "Ошибка",
-                f"Не удалось удалить старую установку:\n{str(e)}"
+                get_text("error_title"),
+                get_text("delete_old_installation_error", error=str(e))
             )
             return
         
@@ -7923,14 +8979,14 @@ class MainWindow(QMainWindow):
         except Exception as e:
             CustomInfoDialog.information(
                 self,
-                "Ошибка",
-                f"Не удалось удалить SteamCMD:\n{str(e)}"
+                get_text("error_title"),
+                get_text("delete_steamcmd_error", error=str(e))
             )
     
     def download_from_workshop(self):
         """Скачивает мод из Steam Workshop через SteamCMD"""
         if not self.game_folder:
-            CustomInfoDialog.information(self, "Ошибка", "Сначала укажите папку с игрой в настройках", icon_type="error")
+            CustomInfoDialog.information(self, get_text("error_title"), get_text("specify_game_folder_first"), icon_type="error")
             return
         
         # Проверяем, установлен ли SteamCMD
@@ -7945,10 +9001,8 @@ class MainWindow(QMainWindow):
         # Диалог ввода ссылки или ID с кастомным стилем
         dialog = CustomInputDialog(
             self,
-            "Скачать из Workshop",
-            "Вставьте ссылку или ID мода/коллекции:\n"
-            "(поддерживаются коллекции - все моды скачаются автоматически)\n\n"
-            "Пример: https://steamcommunity.com/.../?id=123456789",
+            get_text("download_from_workshop"),
+            f"{get_text('workshop_download_prompt')}\n\n{get_text('workshop_download_example')}",
             "",
             show_steamcmd_btn=show_steamcmd_btn,
             use_existing_blur=False
@@ -7989,7 +9043,7 @@ class MainWindow(QMainWindow):
             elif url.strip().isdigit():
                 addon_id = url.strip()
             else:
-                CustomInfoDialog.information(self, "Ошибка", "Неверный формат. Введите ссылку или ID мода.", use_existing_blur=True, icon_type="error")
+                CustomInfoDialog.information(self, get_text("error_title"), get_text("invalid_format_error"), use_existing_blur=True, icon_type="error")
                 return
             
             # Сразу начинаем скачивание через SteamCMD
@@ -7999,7 +9053,7 @@ class MainWindow(QMainWindow):
                 import traceback
                 error_msg = f"Ошибка при скачивании:\n{str(e)}\n\n{traceback.format_exc()}"
                 print(error_msg)
-                CustomInfoDialog.information(self, "Ошибка", f"Произошла ошибка:\n{str(e)}", use_existing_blur=True, icon_type="error")
+                CustomInfoDialog.information(self, get_text("error_title"), get_text("unexpected_error", error=str(e)), use_existing_blur=True, icon_type="error")
             return
         
         if result != QDialog.DialogCode.Accepted:
@@ -8022,7 +9076,7 @@ class MainWindow(QMainWindow):
             elif urls.strip().isdigit():
                 addon_id = urls.strip()
             else:
-                CustomInfoDialog.information(self, "Ошибка", "Неверный формат. Введите ссылку или ID мода.", icon_type="error")
+                CustomInfoDialog.information(self, get_text("error_title"), get_text("invalid_format_error"), icon_type="error")
                 return
             
             # Проверяем, это коллекция или отдельный мод
@@ -8039,7 +9093,7 @@ class MainWindow(QMainWindow):
                     use_existing_blur=False
                 )
                 check_progress.show()
-                check_progress.setLabelText("Проверка типа контента...")
+                check_progress.setLabelText(get_text("checking_content_type"))
                 QApplication.processEvents()
                 
                 collection_info = self.get_collection_items(addon_id)
@@ -8055,10 +9109,11 @@ class MainWindow(QMainWindow):
                     # Это коллекция - показываем подтверждение с блюром
                     dialog = CustomConfirmDialog(
                         self,
-                        "Скачать коллекцию?",
-                        f"Обнаружена коллекция:\n{collection_info['title']}\n\n"
-                        f"Модов в коллекции: {collection_info['count']}\n\n"
-                        f"Скачать все моды из коллекции?",
+                        get_text("download_collection_title"),
+                        get_text("download_collection_message", 
+                            title=collection_info['title'], 
+                            count=collection_info['count']
+                        ),
                         use_existing_blur=True
                     )
                     reply_code = dialog.exec()
@@ -8074,8 +9129,8 @@ class MainWindow(QMainWindow):
                         else:
                             CustomInfoDialog.information(
                                 self, 
-                                "Ошибка", 
-                                "Не удалось получить список модов из коллекции.",
+                                get_text("error_title"), 
+                                get_text("collection_error_message"),
                                 use_existing_blur=True
                             )
                     # Если отказались, просто закрываем блюр
@@ -8102,8 +9157,8 @@ class MainWindow(QMainWindow):
                 
                 CustomInfoDialog.information(
                     self, 
-                    "Ошибка", 
-                    f"Произошла ошибка при проверке:\n{str(e)}\n\nПопробуйте скачать мод напрямую."
+                    get_text("error_title"), 
+                    get_text("download_error_message", error=str(e))
                 )
                 return
     
@@ -8121,14 +9176,14 @@ class MainWindow(QMainWindow):
                 addon_ids.append(url.strip())
         
         if not addon_ids:
-            CustomInfoDialog.information(self, "Ошибка", "Не найдено корректных ссылок или ID.", icon_type="error")
+            CustomInfoDialog.information(self, get_text("error_title"), get_text("no_valid_links_error"), icon_type="error")
             return
         
         # Показываем подтверждение
         reply = CustomConfirmDialog.question(
             self,
-            "Скачать несколько модов?",
-            f"Будет скачано модов: {len(addon_ids)}\n\nПродолжить?"
+            get_text("download_multiple_title"),
+            get_text("download_multiple_message", count=len(addon_ids))
         )
         
         if not reply:
@@ -8137,7 +9192,7 @@ class MainWindow(QMainWindow):
         # Создаем один прогресс-диалог для всех модов
         progress = CustomProgressDialog(
             self,
-            f"Скачивание модов...",
+            get_text("downloading_mods"),
             "Отмена",
             0,
             100,
@@ -8184,12 +9239,9 @@ class MainWindow(QMainWindow):
         time.sleep(0.35)
         
         # Показываем итоговое сообщение
-        result_msg = f"Скачивание завершено!\n\n"
-        result_msg += f"Успешно: {success_count}\n"
-        if failed_count > 0:
-            result_msg += f"Ошибок: {failed_count}"
+        result_msg = get_text("download_completed", success=success_count, failed=failed_count if failed_count > 0 else 0)
         
-        CustomInfoDialog.information(self, "Готово", result_msg, use_existing_blur=True, icon_type="success")
+        CustomInfoDialog.information(self, get_text("ready_title"), result_msg, use_existing_blur=True, icon_type="success")
     
     def filter_addons(self, search_text):
         """Фильтрует аддоны по поисковому запросу (быстрая версия)"""
@@ -8216,10 +9268,13 @@ class MainWindow(QMainWindow):
         
         # Обновляем счетчик
         if search_text:
-            self.counter.setText(f"Найдено: {visible_count} ({enabled_count} вкл)")
+            counter_text = get_text("counter_found", visible=visible_count, enabled=enabled_count)
         else:
             total = sum(1 for a in self.addons if a.get('enabled'))
-            self.counter.setText(f"Аддонов: {len(self.addons)} ({total} вкл)")
+            counter_text = get_text("addons_counter", total=len(self.addons), enabled=total)
+        
+        # Используем вспомогательную функцию для установки текста
+        self.set_counter_text(self.counter, counter_text)
     
     def filter_pirate_addons(self, search_text):
         """Фильтрует пиратские аддоны по поисковому запросу (быстрая версия)"""
@@ -8245,11 +9300,37 @@ class MainWindow(QMainWindow):
         
         # Обновляем счетчик
         if search_text:
-            self.pirate_counter.setText(f"Найдено: {visible_count} ({enabled_count} вкл)")
+            counter_text = get_text("counter_found", visible=visible_count, enabled=enabled_count)
         else:
             if hasattr(self, 'pirate_addons_data'):
                 total = sum(1 for a in self.pirate_addons_data if a.get('enabled'))
-                self.pirate_counter.setText(f"Аддонов: {len(self.pirate_addons_data)} ({total} вкл)")
+                counter_text = get_text("addons_counter", total=len(self.pirate_addons_data), enabled=total)
+            else:
+                counter_text = "0"
+        
+        # Используем вспомогательную функцию для установки текста
+        self.set_counter_text(self.pirate_counter, counter_text, 22)
+    
+    def set_counter_text(self, counter, text, max_length=25):
+        """Устанавливает текст счетчика с обрезанием если он слишком длинный"""
+        # Для английского языка используем более короткий лимит
+        if hasattr(self, 'current_language') and self.current_language == 'en':
+            if max_length == 25:  # Для обычного счетчика
+                max_length = 20  # Уменьшаем для английского
+            elif max_length == 22:  # Для пиратского счетчика
+                max_length = 18  # Уменьшаем для английского
+        
+        if len(text) > max_length:
+            text = text[:max_length-3] + "..."
+        counter.setText(text)
+    
+    def update_header_title(self):
+        """Принудительно обновляет заголовок приложения"""
+        if hasattr(self, 'header_logo'):
+            self.header_logo.setText(get_text("app_title"))
+            self.header_logo.adjustSize()
+            self.header_logo.updateGeometry()
+            self.header_logo.repaint()
     
     def load_config(self):
         """Загрузка конфигурации"""
@@ -8267,11 +9348,34 @@ class MainWindow(QMainWindow):
                         self.last_donate_reminder = config['last_donate_reminder']
                     else:
                         self.last_donate_reminder = 0
+                    
+                    # Загружаем время последнего приглашения в Telegram
+                    if 'last_telegram_invitation' in config:
+                        self.last_telegram_invitation = config['last_telegram_invitation']
+                    else:
+                        self.last_telegram_invitation = 0
+                    
+                    # Загружаем время последнего предупреждения об анимациях
+                    if 'last_animation_warning' in config:
+                        self.last_animation_warning = config['last_animation_warning']
+                    else:
+                        self.last_animation_warning = 0
+                    
+                    # Язык уже загружен в init_localization(), не нужно дублировать
+                    # Просто проверяем что он есть в конфиге
+                    if 'language' in config:
+                        print(f"🌍 load_config: Language in config: {config['language']} (already loaded in init_localization)")
+                    else:
+                        print(f"🌍 load_config: No language found in config")
             except Exception as e:
                 print(f"Ошибка загрузки конфига: {e}")
                 self.last_donate_reminder = 0
+                self.last_telegram_invitation = 0
+                self.last_animation_warning = 0
         else:
             self.last_donate_reminder = 0
+            self.last_telegram_invitation = 0
+            self.last_animation_warning = 0
     
     def save_config(self):
         """Сохранение конфигурации"""
@@ -8282,6 +9386,21 @@ class MainWindow(QMainWindow):
         # Сохраняем время последнего напоминания о донатах
         if hasattr(self, 'last_donate_reminder'):
             config['last_donate_reminder'] = self.last_donate_reminder
+        
+        # Сохраняем время последнего приглашения в Telegram
+        if hasattr(self, 'last_telegram_invitation'):
+            config['last_telegram_invitation'] = self.last_telegram_invitation
+        
+        # Сохраняем время последнего предупреждения об анимациях
+        if hasattr(self, 'last_animation_warning'):
+            config['last_animation_warning'] = self.last_animation_warning
+        
+        # Сохраняем текущий язык
+        if hasattr(self, 'current_language'):
+            print(f"🌍 save_config: Saving language: {self.current_language}")
+            config['language'] = self.current_language
+        else:
+            print(f"🌍 save_config: No current_language attribute")
         
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -8334,8 +9453,8 @@ class MainWindow(QMainWindow):
         else:
             # Создаем красивое сообщение об ошибке в стиле приложения
             msg = QMessageBox(self)
-            msg.setWindowTitle("Система обновлений")
-            msg.setText("❌ Система обновлений недоступна")
+            msg.setWindowTitle(get_text("updater_system_title"))
+            msg.setText(get_text("updater_unavailable"))
             msg.setInformativeText(
                 "Проверьте наличие файлов:\\n"
                 "• modern_updater.py\\n"
@@ -8531,8 +9650,8 @@ class PirateAddonCard(QFrame):
             try:
                 CustomInfoDialog.information(
                     self.parent_window,
-                    "Ошибка",
-                    f"Не удалось удалить мод:\n{str(e)}",
+                    get_text("error_title"),
+                    get_text("delete_mod_error", error=str(e)),
                     icon_type="error"
                 )
             except:
@@ -8588,10 +9707,15 @@ QMainWindow {
 }
 
 #headerTitle {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 500;
     color: white;
-    letter-spacing: 3px;
+    letter-spacing: 0.5px;
+    width: 350px;
+    max-width: 350px;
+    min-width: 350px;
+    text-overflow: visible;
+    overflow: visible;
 }
 
 #donateButton {
@@ -8600,8 +9724,8 @@ QMainWindow {
     border: none;
     border-radius: 20px;
     color: white;
-    padding: 10px 20px;
-    font-size: 13px;
+    padding: 6px 12px;
+    font-size: 11px;
     font-weight: 600;
 }
 
@@ -8621,8 +9745,8 @@ QMainWindow {
     border: none;
     border-radius: 20px;
     color: white;
-    padding: 8px 15px;
-    font-size: 13px;
+    padding: 5px 10px;
+    font-size: 11px;
     font-weight: 600;
 }
 
@@ -8642,8 +9766,8 @@ QMainWindow {
     border: none;
     border-radius: 20px;
     color: white;
-    padding: 8px 15px;
-    font-size: 13px;
+    padding: 5px 10px;
+    font-size: 11px;
     font-weight: 600;
 }
 
@@ -8655,6 +9779,26 @@ QMainWindow {
 #githubButton:pressed {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 #2d3748, stop:0.5 #1a202c, stop:1 #171923);
+}
+
+#telegramButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #0088cc, stop:0.5 #0088cc, stop:1 #006699);
+    border: none;
+    border-radius: 16px;  /* Круглая кнопка (половина от размера 32px) */
+    color: white;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+#telegramButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #33aadd, stop:0.5 #0099dd, stop:1 #0088cc);
+}
+
+#telegramButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #006699, stop:0.5 #005577, stop:1 #004466);
 }
 
 #workshopBtn {
@@ -9154,6 +10298,67 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 #settingsScroll {
     border: none;
     background: transparent;
+}
+
+#languageBtn {
+    background: rgba(40, 40, 40, 0.8);
+    border: 2px solid rgba(52, 152, 219, 0.3);
+    border-radius: 12px;
+    color: white;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 120px;
+}
+
+#languageBtn:hover {
+    background: rgba(52, 152, 219, 0.2);
+    border: 2px solid rgba(52, 152, 219, 0.6);
+}
+
+#languageBtn:checked {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #3498db, stop:1 #2980b9);
+    border: 2px solid #3498db;
+    color: white;
+}
+
+#languageBtn:checked:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #5dade2, stop:1 #3498db);
+}
+
+#languageHeaderBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #27ae60, stop:0.5 #2ecc71, stop:1 #27ae60);
+    border: none;
+    border-radius: 20px;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 15px;
+    min-width: 60px;
+}
+
+#languageHeaderBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #2ecc71, stop:0.5 #58d68d, stop:1 #2ecc71);
+}
+
+#languageHeaderBtn:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #229954, stop:0.5 #27ae60, stop:1 #229954);
+}
+
+#languageCard {
+    background: #191919;
+    border: 2px solid #252525;
+    border-radius: 15px;
+}
+
+#languageCard:hover {
+    border: 2px solid #3498db;
+    background: #242424;
 }
 """
 

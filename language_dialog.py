@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Диалог выбора языка для L4D2 Addon Manager
+Диалог выбора языка для L4D2 Addon Manager в стиле CustomInfoDialog
 """
 
 import sys
@@ -9,6 +9,37 @@ from pathlib import Path
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
+
+# Импортируем функцию локализации
+try:
+    from localization import get_text
+except ImportError:
+    def get_text(key, **kwargs):
+        return key
+
+# Импортируем AnimatedActionButton из основного файла
+try:
+    from l4d2_pyqt_main import AnimatedActionButton
+except ImportError:
+    # Если не удается импортировать, создаем простую замену
+    class AnimatedActionButton(QPushButton):
+        def __init__(self, text, color):
+            super().__init__(text)
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: {color};
+                    border: none;
+                    border-radius: 25px;
+                    color: white;
+                    font-size: 14px;
+                    font-weight: 600;
+                    padding: 10px 20px;
+                }}
+                QPushButton:hover {{
+                    background: {color};
+                    opacity: 0.8;
+                }}
+            """)
 
 def get_resource_path(filename):
     """Получает правильный путь к ресурсу"""
@@ -24,120 +55,32 @@ def get_resource_path(filename):
     return base_path / filename
 
 class LanguageSelectionDialog(QDialog):
-    """Диалог выбора языка при первом запуске"""
+    """Диалог выбора языка в стиле CustomInfoDialog"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.parent_widget = parent
         self.selected_language = "ru"  # По умолчанию русский
-        self.setup_ui()
         
-    def setup_ui(self):
-        """Создает интерфейс диалога"""
-        self.setWindowTitle("Language Selection / Выбор языка")
+        # Настройка окна
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(True)
-        self.setFixedSize(500, 400)
         
-        # Основной layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Применяем блюр к родительскому окну (если есть)
+        if parent:
+            self.blur_effect = QGraphicsBlurEffect()
+            self.blur_effect.setBlurRadius(0)
+            parent.setGraphicsEffect(self.blur_effect)
+            
+            # Анимация блюра
+            self.blur_anim = QPropertyAnimation(self.blur_effect, b"blurRadius")
+            self.blur_anim.setDuration(300)
+            self.blur_anim.setStartValue(0)
+            self.blur_anim.setEndValue(15)
+            self.blur_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         
-        # Контейнер с фоном
-        container = QWidget()
-        container.setStyleSheet("""
-            QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 rgba(30, 30, 30, 0.95),
-                    stop:1 rgba(20, 20, 20, 0.95));
-                border-radius: 20px;
-                border: 2px solid rgba(52, 152, 219, 0.3);
-            }
-        """)
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(40, 40, 40, 40)
-        container_layout.setSpacing(25)
-        container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Иконка приложения
-        icon_label = QLabel()
-        icon_path = get_resource_path("logo.png")
-        if icon_path.exists():
-            pixmap = QPixmap(str(icon_path))
-            if not pixmap.isNull():
-                scaled_pixmap = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                icon_label.setPixmap(scaled_pixmap)
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        container_layout.addWidget(icon_label)
-        
-        # Заголовок
-        title_label = QLabel("L4D2 Addon Manager")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("font-size: 24px; font-weight: 600; color: white; margin-bottom: 10px;")
-        container_layout.addWidget(title_label)
-        
-        # Описание (двуязычное)
-        description_label = QLabel(
-            "<div style='text-align: center; color: #bdc3c7; line-height: 1.6;'>"
-            "<b>Please select your preferred language:</b><br>"
-            "<b>Пожалуйста, выберите предпочитаемый язык:</b>"
-            "</div>"
-        )
-        description_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        description_label.setStyleSheet("font-size: 14px; margin-bottom: 20px;")
-        description_label.setWordWrap(True)
-        container_layout.addWidget(description_label)
-        
-        # Кнопки выбора языка
-        languages_layout = QVBoxLayout()
-        languages_layout.setSpacing(15)
-        
-        # Русский язык
-        self.russian_btn = self.create_language_button(
-            "🇷🇺 Русский", 
-            "Русский интерфейс", 
-            "ru"
-        )
-        self.russian_btn.setChecked(True)  # По умолчанию выбран
-        languages_layout.addWidget(self.russian_btn)
-        
-        # Английский язык
-        self.english_btn = self.create_language_button(
-            "🇺🇸 English", 
-            "English interface", 
-            "en"
-        )
-        languages_layout.addWidget(self.english_btn)
-        
-        container_layout.addLayout(languages_layout)
-        
-        # Кнопка продолжить
-        continue_btn = QPushButton("Continue / Продолжить")
-        continue_btn.setFixedSize(200, 45)
-        continue_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #3498db, stop:1 #2980b9);
-                border: none;
-                border-radius: 22px;
-                color: white;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #5dade2, stop:1 #3498db);
-            }
-            QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #2980b9, stop:1 #21618c);
-            }
-        """)
-        continue_btn.clicked.connect(self.accept)
-        container_layout.addWidget(continue_btn, 0, Qt.AlignmentFlag.AlignCenter)
-        
-        layout.addWidget(container)
+        self.setup_ui()
         
         # Анимация появления
         self.setWindowOpacity(0)
@@ -146,66 +89,148 @@ class LanguageSelectionDialog(QDialog):
         self.opacity_anim.setStartValue(0)
         self.opacity_anim.setEndValue(1)
         self.opacity_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-    
-    def create_language_button(self, title, description, language_code):
-        """Создает кнопку выбора языка"""
-        btn = QRadioButton()
-        btn.setFixedSize(350, 60)
-        btn.setStyleSheet("""
-            QRadioButton {
-                background: rgba(40, 40, 40, 0.8);
-                border: 2px solid rgba(52, 152, 219, 0.3);
-                border-radius: 15px;
-                padding: 10px 15px;
-                color: white;
-                font-size: 14px;
-            }
-            QRadioButton:hover {
-                background: rgba(50, 50, 50, 0.9);
-                border: 2px solid rgba(52, 152, 219, 0.6);
-            }
-            QRadioButton:checked {
-                background: rgba(52, 152, 219, 0.2);
-                border: 2px solid #3498db;
-            }
-            QRadioButton::indicator {
-                width: 20px;
-                height: 20px;
-                margin-right: 10px;
-            }
-            QRadioButton::indicator:unchecked {
-                border: 2px solid #7f8c8d;
-                border-radius: 10px;
-                background: transparent;
-            }
-            QRadioButton::indicator:checked {
-                border: 2px solid #3498db;
-                border-radius: 10px;
-                background: #3498db;
-            }
-        """)
         
-        # Создаем кастомный текст
-        btn.setText(f"{title}\n{description}")
+    def setup_ui(self):
+        """Создает интерфейс в стиле CustomInfoDialog"""
+        self.setFixedSize(700, 520)
+        
+        # Основной layout - всегда центрируем по вертикали
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 40, 40, 40)  # Равные отступы со всех сторон
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(20)
+        container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Иконка приложения - ЕДИНЫЙ СТАНДАРТ 120x120 как в CustomInfoDialog
+        icon_label = QLabel()
+        icon_path = get_resource_path("logo.png")
+        if icon_path.exists():
+            pixmap = QPixmap(str(icon_path))
+            if not pixmap.isNull():
+                # ЕДИНЫЙ СТАНДАРТ: 120x120
+                scaled_pixmap = pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                icon_label.setPixmap(scaled_pixmap)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        container_layout.addWidget(icon_label)
+        
+        # Заголовок - ЕДИНЫЙ СТАНДАРТ как в CustomInfoDialog
+        title_label = QLabel("Выбор языка")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
+        container_layout.addWidget(title_label)
+        
+        # Сообщение - меньший шрифт как в CustomInfoDialog
+        message_label = QLabel(
+            'Please select your preferred interface language:\n'
+            'Пожалуйста, выберите предпочитаемый язык интерфейса:\n\n'
+            'This setting can be changed later in Settings.\n'
+            'Эту настройку можно изменить позже в Настройках.'
+        )
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        message_label.setWordWrap(True)
+        message_label.setMaximumWidth(600)  # Ограничиваем ширину для лучшей читаемости
+        message_label.setStyleSheet("font-size: 13px; color: white; line-height: 1.5;")
+        container_layout.addWidget(message_label, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        # Кнопки выбора языка в стиле CustomInfoDialog
+        languages_layout = QVBoxLayout()
+        languages_layout.setSpacing(15)
+        
+        # Русский язык
+        self.russian_btn = self.create_language_button("Русский", "ru", True)
+        languages_layout.addWidget(self.russian_btn, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        # Английский язык  
+        self.english_btn = self.create_language_button("English", "en", False)
+        languages_layout.addWidget(self.english_btn, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        container_layout.addLayout(languages_layout)
+        
+        layout.addWidget(container)
+    
+    def create_language_button(self, text, language_code, is_default=False):
+        """Создает кнопку выбора языка в стиле AnimatedActionButton"""
+        # Используем AnimatedActionButton для единого стиля
+        if is_default:
+            btn = AnimatedActionButton(text, "#3498db")  # Выбранная кнопка синяя
+        else:
+            btn = AnimatedActionButton(text, "#7f8c8d")  # Невыбранная кнопка серая
+        
+        btn.setFixedSize(250, 50)
+        btn.setCheckable(True)
+        btn.setChecked(is_default)
         
         # Подключаем обработчик
-        btn.toggled.connect(lambda checked, lang=language_code: self.on_language_selected(lang) if checked else None)
+        btn.clicked.connect(lambda: self.on_language_selected(language_code, btn))
+        
+        if is_default:
+            self.selected_language = language_code
         
         return btn
     
-    def on_language_selected(self, language_code):
+    def on_language_selected(self, language_code, clicked_btn):
         """Обработчик выбора языка"""
         self.selected_language = language_code
-        print(f"Selected language: {language_code}")
+        
+        # Обновляем стили кнопок - выбранная синяя, остальные серые
+        for btn in [self.russian_btn, self.english_btn]:
+            if btn == clicked_btn:
+                btn.setChecked(True)
+                # Меняем цвет на синий для выбранной кнопки
+                btn.setStyleSheet(btn.styleSheet().replace("#7f8c8d", "#3498db"))
+            else:
+                btn.setChecked(False)
+                # Меняем цвет на серый для невыбранных кнопок
+                btn.setStyleSheet(btn.styleSheet().replace("#3498db", "#7f8c8d"))
+        
+        print(f"🌍 Selected language: {language_code}")
+        
+        # Сразу закрываем диалог после выбора языка
+        QTimer.singleShot(200, self.close_with_animation)  # Небольшая задержка для визуального эффекта
     
     def show_with_animation(self):
         """Показывает диалог с анимацией"""
         self.show()
         self.opacity_anim.start()
+        if hasattr(self, 'blur_anim') and self.blur_anim:
+            self.blur_anim.start()
     
     def get_selected_language(self):
         """Возвращает выбранный язык"""
         return self.selected_language
+    
+    def close_with_animation(self):
+        """Закрывает диалог с анимацией"""
+        # Анимация исчезновения
+        self.opacity_anim.setStartValue(1)
+        self.opacity_anim.setEndValue(0)
+        self.opacity_anim.finished.connect(lambda: super(LanguageSelectionDialog, self).accept())
+        self.opacity_anim.start()
+        
+        # Убираем блюр
+        if hasattr(self, 'blur_anim') and self.blur_anim:
+            self.blur_anim.setStartValue(15)
+            self.blur_anim.setEndValue(0)
+            self.blur_anim.start()
+    
+    def accept(self):
+        """Переопределяем accept для анимации"""
+        if not hasattr(self, '_closing'):
+            self._closing = True
+            self.close_with_animation()
+    
+    def closeEvent(self, event):
+        """При закрытии убираем blur"""
+        try:
+            if self.parent_widget:
+                self.parent_widget.setGraphicsEffect(None)
+        except Exception as e:
+            print(f"Error removing blur effect: {e}")
+        super().closeEvent(event)
 
 def show_language_selection_dialog(parent=None):
     """Показывает диалог выбора языка и возвращает выбранный язык"""

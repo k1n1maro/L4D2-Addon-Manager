@@ -13,7 +13,7 @@ GITHUB_REPO = f"{GITHUB_USERNAME}/{GITHUB_REPO_NAME}"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # Текущая версия приложения (обновляйте при каждом релизе)
-CURRENT_VERSION = "1.1.0"
+CURRENT_VERSION = "1.2.0"
 
 # Интервал автоматической проверки обновлений (в миллисекундах)
 UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000  # 24 часа
