@@ -96,3 +96,7 @@ NOTES.md
 
 # Release files (keep in release/ folder only)
 release/
+
+# PNG files (icons and images - not needed in repository)
+*.png
+screenshots/
