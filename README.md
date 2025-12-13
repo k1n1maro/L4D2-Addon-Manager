@@ -62,6 +62,13 @@
 
 💡 Просто скачайте EXE файл и запустите - никаких дополнительных программ не нужно!
 
+## 👨‍💻 Автор
+
+**k1n1maro**  
+[![GitHub](https://img.shields.io/badge/GitHub-k1n1maro-181717?style=flat&logo=github)](https://github.com/k1n1maro)
+[![Steam](https://img.shields.io/badge/Steam-kinimaro-1b2838?style=flat&logo=steam)](https://steamcommunity.com/id/kinimaro/)
+
+
 ## 💝 Поддержать проект
 
 [![Boosty](https://img.shields.io/badge/💎_Boosty-k1n1maro-ff6854?style=for-the-badge&logo=heart)](https://boosty.to/k1n1maro)
@@ -117,11 +124,6 @@ python l4d2_pyqt_main.py
 
 [![Issues](https://img.shields.io/badge/🐛_Сообщить_о_баге-GitHub_Issues-red?style=for-the-badge&logo=github)](https://github.com/k1n1maro/L4D2-Addon-Manager/issues/new)
 
-## 👨‍💻 Автор
-
-**k1n1maro**  
-[![GitHub](https://img.shields.io/badge/GitHub-k1n1maro-181717?style=flat&logo=github)](https://github.com/k1n1maro)
-[![Steam](https://img.shields.io/badge/Steam-kinimaro-1b2838?style=flat&logo=steam)](https://steamcommunity.com/id/kinimaro/)
 
 ---
 
