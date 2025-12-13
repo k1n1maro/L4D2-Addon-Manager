@@ -26,6 +26,28 @@ except ImportError:
     UPDATER_AVAILABLE = False
     print("Система обновлений недоступна")
 
+# Импортируем систему локализации
+try:
+    from localization import get_text, set_language, get_available_languages, save_language_preference, load_language_preference
+    from language_dialog import show_language_selection_dialog
+    LOCALIZATION_AVAILABLE = True
+except ImportError:
+    LOCALIZATION_AVAILABLE = False
+    print("Система локализации недоступна")
+    # Заглушки для локализации
+    def get_text(key, **kwargs):
+        return key
+    def set_language(lang):
+        return True
+    def get_available_languages():
+        return {"ru": "Русский"}
+    def save_language_preference(config_file):
+        return True
+    def load_language_preference(config_file):
+        return "ru"
+    def show_language_selection_dialog(parent=None):
+        return "ru"
+
 CONFIG_FILE = Path.home() / ".l4d2_mod_manager_config.json"
 STEAM_API_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 
@@ -276,6 +298,10 @@ class LoadingDialog(QDialog):
         # Увеличенный размер диалога чтобы текст помещался
         self.setFixedSize(700, 400)
         
+        # Блокируем события мыши для родительского окна во время загрузки
+        if self.parent_widget:
+            self.parent_widget.setEnabled(False)
+        
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -288,7 +314,7 @@ class LoadingDialog(QDialog):
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Заголовок - ЕДИНЫЙ СТАНДАРТ
-        title = QLabel("Загрузка аддонов")
+        title = QLabel(get_text("loading_addons"))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
         container_layout.addWidget(title)
@@ -316,7 +342,7 @@ class LoadingDialog(QDialog):
         container_layout.addWidget(self.progress, 0, Qt.AlignmentFlag.AlignCenter)
         
         # Текст статуса - с правильными отступами и размерами
-        self.status_label = QLabel("Инициализация...")
+        self.status_label = QLabel(get_text("initializing"))
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setWordWrap(True)  # Включаем перенос строк
         self.status_label.setFixedSize(580, 100)  # Фиксированный размер
@@ -339,11 +365,19 @@ class LoadingDialog(QDialog):
         self.progress.setValue(value)
         if status:
             self.status_label.setText(status)
-        QApplication.processEvents()
+        
+        # Ограничиваем обработку событий только для этого диалога
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
     
     def closeEvent(self, event):
-        """При закрытии убираем blur (если не указано keep_blur_on_close и blur не был существующим)"""
+        """При закрытии убираем blur и восстанавливаем события мыши"""
         try:
+            # Восстанавливаем события мыши для родительского окна
+            if self.parent_widget:
+                self.parent_widget.setEnabled(True)
+                # Принудительно очищаем все события мыши
+                QApplication.processEvents()
+            
             if self.parent_widget and not self.keep_blur_on_close and not self.existing_blur:
                 self.parent_widget.setGraphicsEffect(None)
                 print("🔄 Blur effect removed from parent widget in closeEvent")
@@ -3515,6 +3549,10 @@ class MainWindow(QMainWindow):
         self.first_launch = False  # Флаг первого запуска для показа уведомления (определяется позже)
         self.steamcmd_custom_path = None  # Путь к SteamCMD
         self.last_donate_reminder = 0  # Время последнего напоминания о донатах
+        self.current_language = "ru"  # Текущий язык интерфейса
+        
+        # Инициализируем локализацию
+        self.init_localization()
         
         self.setup_ui()
         self.apply_dark_styles()  # Применяем только темную тему
@@ -3532,8 +3570,35 @@ class MainWindow(QMainWindow):
         # Welcome screen будет показан после show() в main
         QTimer.singleShot(100, self.show_welcome)
     
+    def init_localization(self):
+        """Инициализирует систему локализации"""
+        try:
+            # Проверяем, есть ли сохраненный язык
+            saved_language = load_language_preference(CONFIG_FILE)
+            
+            # Если конфиг не существует, показываем диалог выбора языка
+            if not CONFIG_FILE.exists():
+                print("🌍 First launch detected, showing language selection dialog")
+                selected_language = show_language_selection_dialog(self)
+                set_language(selected_language)
+                self.current_language = selected_language
+                # Сохраняем выбранный язык
+                save_language_preference(CONFIG_FILE)
+            else:
+                # Загружаем сохраненный язык
+                set_language(saved_language)
+                self.current_language = saved_language
+                
+            print(f"🌍 Language set to: {self.current_language}")
+            
+        except Exception as e:
+            print(f"❌ Error initializing localization: {e}")
+            # Fallback на русский
+            set_language("ru")
+            self.current_language = "ru"
+    
     def setup_ui(self):
-        self.setWindowTitle("L4D2 Addon Manager")
+        self.setWindowTitle(get_text("app_title"))
         self.setFixedSize(1000, 700)
         
         # Центральный виджет
@@ -3565,14 +3630,14 @@ class MainWindow(QMainWindow):
         h_layout.addSpacing(15)
         
         # Логотип (минималистичный)
-        logo = QLabel("L4D2 Addon Manager")
+        logo = QLabel(get_text("app_title"))
         logo.setObjectName("headerTitle")
         h_layout.addWidget(logo)
         
         h_layout.addStretch()
         
         # Кнопка "Поддержать проект" с иконкой
-        donate_btn = QPushButton("  Поддержать проект")
+        donate_btn = QPushButton(f"  {get_text('btn_support_project')}")
         donate_btn.setObjectName("donateButton")
         donate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         donate_btn.setFixedHeight(40)
@@ -3605,11 +3670,11 @@ class MainWindow(QMainWindow):
         if UPDATER_AVAILABLE:
             h_layout.addSpacing(2)
             
-            update_btn = QPushButton("  Обновления")
+            update_btn = QPushButton(f"  {get_text('btn_updates')}")
             update_btn.setObjectName("updateButton")
             update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             update_btn.setFixedHeight(40)
-            update_btn.setToolTip("Проверить обновления приложения")
+            update_btn.setToolTip(get_text("btn_updates"))
             
             upd_icon_path = Path(__file__).parent / "upd.png"
             if upd_icon_path.exists():
@@ -3634,11 +3699,11 @@ class MainWindow(QMainWindow):
             
             h_layout.addSpacing(2)
             
-            github_btn = QPushButton("  GitHub")
+            github_btn = QPushButton(f"  {get_text('btn_github')}")
             github_btn.setObjectName("githubButton")
             github_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             github_btn.setFixedHeight(40)
-            github_btn.setToolTip("Открыть репозиторий на GitHub")
+            github_btn.setToolTip(get_text("btn_github"))
             
             git_icon_path = Path(__file__).parent / "git.png"
             if git_icon_path.exists():
@@ -5587,6 +5652,9 @@ class MainWindow(QMainWindow):
     def on_loading_finished(self):
         """Вызывается после завершения всей загрузки"""
         try:
+            # Принудительно очищаем все события мыши перед завершением
+            QApplication.processEvents()
+            
             if hasattr(self, 'loading_dialog') and self.loading_dialog:
                 # Принудительно убираем blur эффект ПЕРЕД закрытием
                 if hasattr(self.loading_dialog, 'parent_widget') and self.loading_dialog.parent_widget:
@@ -5609,6 +5677,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'loading_timeout_timer'):
             self.loading_timeout_timer.stop()
         
+        # Принудительно очищаем все события мыши и обновляем интерфейс
+        QApplication.processEvents()
+        
+        # Сбрасываем состояние всех виджетов
+        self.reset_widget_states()
+        
         # Показываем элементы интерфейса
         self.tab_header_container.setEnabled(True)
         self.tab_header_container.show()
@@ -5619,16 +5693,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'addons') and self.addons:
             enabled_count = sum(1 for a in self.addons if a.get('enabled'))
             self.counter.setText(f"Аддонов: {len(self.addons)} ({enabled_count} вкл)")
-        self.tab_header_container.setEnabled(True)
-        self.tab_header_container.show()
-        self.controls_container.setEnabled(True)
-        self.controls_container.show()
         
         # Проверяем синхронизацию с gameinfo.txt
-        self.check_gameinfo_sync()
-        
-        # НЕ показываем элементы вкладки сразу - покажем после уведомления
-        
         self.check_gameinfo_sync()
         
         # Показываем уведомление об анимациях только при первом запуске
@@ -5644,6 +5710,30 @@ class MainWindow(QMainWindow):
             self.tab_header_container.show()
             self.controls_container.setEnabled(True)  # Разблокируем события мыши
             self.controls_container.show()
+            
+        # Финальная очистка событий
+        QApplication.processEvents()
+    
+    def reset_widget_states(self):
+        """Сбрасывает состояние всех виджетов после загрузки"""
+        try:
+            # Сбрасываем состояние hover для всех карточек аддонов
+            if hasattr(self, 'addon_cards_container'):
+                for i in range(self.addon_cards_container.count()):
+                    widget = self.addon_cards_container.itemAt(i).widget()
+                    if widget and hasattr(widget, 'leaveEvent'):
+                        # Принудительно вызываем leaveEvent для сброса hover состояния
+                        fake_event = QEvent(QEvent.Type.Leave)
+                        widget.leaveEvent(fake_event)
+            
+            # Сбрасываем курсор мыши
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            
+            # Принудительно обновляем все виджеты
+            self.update()
+            
+        except Exception as e:
+            print(f"❌ Ошибка сброса состояния виджетов: {e}")
     
     def get_enabled_addons_from_folders(self):
         """Получает список включенных аддонов по наличию папок и vpk файлов в steamapps/workshop/"""

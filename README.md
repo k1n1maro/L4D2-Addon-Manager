@@ -2,6 +2,9 @@
 
 # L4D2 Addon Manager
 
+> 🚨 **ВАЖНО для пользователей v1.1.0:** Система обновлений в v1.1.0 сломана! Обязательно скачайте v1.2.0 вручную с GitHub!  
+> 🚨 **IMPORTANT for v1.1.0 users:** Update system in v1.1.0 is broken! Please download v1.2.0 manually from GitHub!
+
 ![Version](https://img.shields.io/github/v/release/k1n1maro/L4D2-Addon-Manager?style=for-the-badge&logo=github&color=ff6b35&labelColor=2d3748)
 ![Downloads](https://img.shields.io/github/downloads/k1n1maro/L4D2-Addon-Manager/total?style=for-the-badge&logo=download&color=38a169&labelColor=2d3748)
 ![Release Date](https://img.shields.io/github/release-date/k1n1maro/L4D2-Addon-Manager?style=for-the-badge&logo=calendar&color=805ad5&labelColor=2d3748)
@@ -9,15 +12,19 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows_10/11-0078d4?style=for-the-badge&logo=windows&labelColor=2d3748)
 ![Language](https://img.shields.io/badge/Language-Python_3.8+-3776ab?style=for-the-badge&logo=python&labelColor=2d3748)
 
-**Простой и удобный менеджер аддонов для Left 4 Dead 2**  
+**🇷🇺 Простой и удобный менеджер аддонов для Left 4 Dead 2**  
 *Управляйте модами одним кликом без головной боли - поддержка Steam Workshop и пиратских версий игры*
+
+**🇺🇸 Simple and convenient addon manager for Left 4 Dead 2**  
+*Manage mods with one click without headaches - supports Steam Workshop and pirated game versions*
 
 ![Главный интерфейс](screenshots/Screenshot_2.png)
 
 </div>
 
-## 🚀 Возможности
+## 🚀 Возможности / Features
 
+### 🇷🇺 Русский
 - **Управление одним кликом** - Включайте и выключайте моды мгновенно
 - **Steam Workshop** - Полная поддержка официальных аддонов из мастерской
 - **Пиратские версии** - Работает с любыми версиями игры L4D2
@@ -25,6 +32,15 @@
 - **Современный интерфейс** - Красивый дизайн с анимациями и темной темой
 - **Быстрый поиск** - Находите нужные моды по названию
 - **Статистика модов** - Информация о размере и статусе каждого аддона
+
+### 🇺🇸 English
+- **One-click management** - Enable and disable mods instantly
+- **Steam Workshop** - Full support for official workshop addons
+- **Pirated versions** - Works with any L4D2 game versions
+- **Auto-updates** - Program automatically checks and installs updates
+- **Modern interface** - Beautiful design with animations and dark theme
+- **Quick search** - Find needed mods by name
+- **Mod statistics** - Information about size and status of each addon
 
 <details>
 <summary>📸 <strong>Больше скриншотов</strong></summary>
@@ -55,13 +71,15 @@
 
 <div align="center">
 
-## 📥 Скачать EXE
+## 📥 Скачать EXE / Download EXE
 
-[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.1.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.1.0_Fixed.exe)
+[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.2.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.2.0_Fixed.exe)
 
-**Размер:** ~50MB | **Установка:** Не требуется
+**🇷🇺 Размер:** ~50MB | **Установка:** Не требуется  
+**🇺🇸 Size:** ~50MB | **Installation:** Not required
 
-> 💡 Просто скачайте EXE файл и запустите - никаких дополнительных программ не нужно!
+> 💡 **🇷🇺** Просто скачайте EXE файл и запустите - никаких дополнительных программ не нужно!  
+> 💡 **🇺🇸** Just download the EXE file and run it - no additional programs needed!
 
 </div>
 
@@ -109,12 +127,13 @@ python l4d2_pyqt_main.py
 
 <div align="center">
 
-## 📝 История версий
+## 📝 История версий / Version History
 
-| Версия | Дата | Описание |
-|--------|------|----------|
-| **v1.1.0** | 2024-12-13 | 🐛 Исправлены баги при первом запуске, улучшена стабильность |
-| **v1.0.0** | 2024-12-10 | 🎉 Первый релиз с базовым функционалом |
+| Версия / Version | Дата / Date | Описание / Description |
+|------------------|-------------|------------------------|
+| **v1.2.0** | 2024-12-13 | 🔧 **🇷🇺** Исправлена система обновлений, добавлена поддержка английского языка, улучшена стабильность<br>🔧 **🇺🇸** Fixed update system, added English language support, improved stability |
+| **v1.1.0** | 2024-12-13 | 🐛 **🇷🇺** Исправлены баги при первом запуске, улучшена стабильность<br>🐛 **🇺🇸** Fixed first launch bugs, improved stability |
+| **v1.0.0** | 2024-12-10 | 🎉 **🇷🇺** Первый релиз с базовым функционалом<br>🎉 **🇺🇸** First release with basic functionality |
 
 </div>
 
