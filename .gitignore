@@ -21,9 +21,10 @@ wheels/
 *.egg
 MANIFEST
 
-# PyInstaller
+# PyInstaller build files
+build/
+dist/
 *.manifest
-*.spec
 
 # Installer logs
 pip-log.txt
@@ -92,3 +93,6 @@ debug_*.py
 DEVELOPMENT.md
 TODO.md
 NOTES.md
+
+# Release files (keep in release/ folder only)
+release/
