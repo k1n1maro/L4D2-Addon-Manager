@@ -60,7 +60,18 @@
 
 **Размер:** ~50MB | **Установка:** Не требуется
 
-> 💡 Просто скачайте EXE файл и запустите - никаких дополнительных программ не нужно!
+💡 Просто скачайте EXE файл и запустите - никаких дополнительных программ не нужно!
+
+## 💝 Поддержать проект
+
+[![Boosty](https://img.shields.io/badge/💎_Boosty-k1n1maro-ff6854?style=for-the-badge&logo=heart)](https://boosty.to/k1n1maro)
+[![DonationAlerts](https://img.shields.io/badge/🔔_DonationAlerts-k1n1maro-00d4aa?style=for-the-badge&logo=paypal)](https://www.donationalerts.com/r/k1n1maro)
+
+**Карта Сбербанка:** `2202 2067 3893 4277`
+
+</div>
+
+<div align="center">
 
 </div>
 
@@ -90,16 +101,6 @@ python l4d2_pyqt_main.py
 
 <div align="center">
 
-## 💝 Поддержать проект
-
-[![Boosty](https://img.shields.io/badge/💎_Boosty-k1n1maro-ff6854?style=for-the-badge&logo=heart)](https://boosty.to/k1n1maro)
-[![DonationAlerts](https://img.shields.io/badge/🔔_DonationAlerts-k1n1maro-00d4aa?style=for-the-badge&logo=paypal)](https://www.donationalerts.com/r/k1n1maro)
-
-**Карта Сбербанка:** `2202 2067 3893 4277`
-
-</div>
-
-<div align="center">
 
 ## 📝 История версий
 
