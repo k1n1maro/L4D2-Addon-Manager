@@ -716,7 +716,13 @@ class SetupDialog(QDialog):
                 self.parent_widget.update_paths()
                 print(f"   Updated workshop_path: {self.parent_widget.workshop_path}")
                 
-                self.parent_widget.save_config()
+                # Сохраняем конфиг только если язык уже выбран
+                # Иначе конфиг сохранится без языка или с дефолтным
+                if hasattr(self.parent_widget, 'current_language') and self.parent_widget.current_language:
+                    print(f"🌍 Saving config with language: {self.parent_widget.current_language}")
+                    self.parent_widget.save_config()
+                else:
+                    print(f"🌍 Skipping config save - language not selected yet")
                 
                 # Автоматически сканируем аддоны после выбора папки (только один раз)
                 if hasattr(self.parent_widget, 'scan_addons'):
@@ -4122,6 +4128,11 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         self.setWindowTitle(get_text("app_title"))
         self.setFixedSize(1000, 700)
+        
+        # Устанавливаем иконку окна
+        icon_path = get_resource_path("logo.png")
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         
         # Центральный виджет
         central = QWidget()
