@@ -5,6 +5,9 @@
 ![Version](https://img.shields.io/github/v/release/k1n1maro/L4D2-Addon-Manager?style=for-the-badge&logo=github&color=ff6b35&labelColor=2d3748)
 ![Downloads](https://img.shields.io/github/downloads/k1n1maro/L4D2-Addon-Manager/total?style=for-the-badge&logo=download&color=38a169&labelColor=2d3748)
 ![Release Date](https://img.shields.io/github/release-date/k1n1maro/L4D2-Addon-Manager?style=for-the-badge&logo=calendar&color=805ad5&labelColor=2d3748)
+![License](https://img.shields.io/github/license/k1n1maro/L4D2-Addon-Manager?style=for-the-badge&color=f56565&labelColor=2d3748)
+![Platform](https://img.shields.io/badge/Platform-Windows_10/11-0078d4?style=for-the-badge&logo=windows&labelColor=2d3748)
+![Language](https://img.shields.io/badge/Language-Python_3.8+-3776ab?style=for-the-badge&logo=python&labelColor=2d3748)
 
 **Простой и удобный менеджер аддонов для Left 4 Dead 2**  
 *Управляйте модами одним кликом без головной боли - поддержка Steam Workshop и пиратских версий игры*
@@ -12,14 +15,6 @@
 ![Главный интерфейс](screenshots/Screenshot_2.png)
 
 </div>
-
-## 📥 Скачать EXE
-
-[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.1.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.1.0_Fixed.exe)
-
-**Размер:** ~50MB | **Установка:** Не требуется
-
-💡 Просто скачайте EXE файл и запустите - никаких дополнительных программ не нужно!
 
 ## 🚀 Возможности
 
@@ -58,6 +53,14 @@
 </details>
 
 <div align="center">
+
+## 📥 Скачать EXE
+
+[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.1.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.1.0_Fixed.exe)
+
+**Размер:** ~50MB | **Установка:** Не требуется
+
+💡 Просто скачайте EXE файл и запустите - никаких дополнительных программ не нужно!
 
 ## 👨‍💻 Автор
 
