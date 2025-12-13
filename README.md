@@ -2,9 +2,6 @@
 
 # L4D2 Addon Manager
 
-> 🚨 **ВАЖНО для пользователей v1.1.0:** Система обновлений в v1.1.0 сломана! Обязательно скачайте v1.2.0 вручную с GitHub!  
-> 🚨 **IMPORTANT for v1.1.0 users:** Update system in v1.1.0 is broken! Please download v1.2.0 manually from GitHub!
-
 ![Version](https://img.shields.io/github/v/release/k1n1maro/L4D2-Addon-Manager?style=for-the-badge&logo=github&color=ff6b35&labelColor=2d3748)
 ![Downloads](https://img.shields.io/github/downloads/k1n1maro/L4D2-Addon-Manager/total?style=for-the-badge&logo=download&color=38a169&labelColor=2d3748)
 ![Release Date](https://img.shields.io/github/release-date/k1n1maro/L4D2-Addon-Manager?style=for-the-badge&logo=calendar&color=805ad5&labelColor=2d3748)
