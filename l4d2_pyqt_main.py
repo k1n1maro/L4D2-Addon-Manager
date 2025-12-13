@@ -28,6 +28,8 @@ except ImportError:
 CONFIG_FILE = Path.home() / ".l4d2_mod_manager_config.json"
 STEAM_API_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
 
+# Используем только эмодзи вместо PNG файлов для чистоты репозитория
+
 
 class AddonScanWorker(QThread):
     """Worker thread для сканирования аддонов в фоне"""
@@ -397,16 +399,10 @@ class BlurDialog(QDialog):
         container_layout.setSpacing(20)
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Логотип - БОЛЬШОЙ 250x250, БЕЗ перекраски
+        # Логотип - эмодзи вместо PNG
         icon_label = QLabel()
-        logo_path = Path(__file__).parent / "logo.png"
-        if logo_path.exists():
-            pixmap = QPixmap(str(logo_path))
-            if not pixmap.isNull():
-                # Увеличенный размер: 250x250
-                scaled_pixmap = pixmap.scaled(250, 250, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                # Используем оригинальный цвет, БЕЗ перекраски
-                icon_label.setPixmap(scaled_pixmap)
+        icon_label.setText("🎮")
+        icon_label.setStyleSheet("font-size: 120px;")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         container_layout.addWidget(icon_label)
         
@@ -557,26 +553,10 @@ class SetupDialog(QDialog):
         container_layout.setSpacing(20)
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Иконка folder.png залитая синим цветом - ЕДИНЫЙ СТАНДАРТ 120x120
+        # Иконка папки - эмодзи вместо PNG
         icon_label = QLabel()
-        icon_path = Path(__file__).parent / "folder.png"
-        if icon_path.exists():
-            pixmap = QPixmap(str(icon_path))
-            if not pixmap.isNull():
-                # ЕДИНЫЙ СТАНДАРТ: 120x120
-                scaled_pixmap = pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                
-                # Перекрашиваем в синий цвет #3498db
-                colored_pixmap = QPixmap(scaled_pixmap.size())
-                colored_pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(colored_pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-                painter.drawPixmap(0, 0, scaled_pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-                painter.fillRect(colored_pixmap.rect(), QColor(52, 152, 219))  # #3498db
-                painter.end()
-                
-                icon_label.setPixmap(colored_pixmap)
+        icon_label.setText("📁")
+        icon_label.setStyleSheet("font-size: 80px; color: #3498db;")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         # Небольшой отступ слева для идеального центрирования
         icon_label.setContentsMargins(10, 0, 0, 0)

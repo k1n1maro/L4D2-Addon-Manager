@@ -19,27 +19,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
 # PyInstaller
 *.manifest
 *.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
 
 # Environments
 .env
@@ -59,36 +42,41 @@ venv.bak/
 
 # OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 desktop.ini
 
-# Application specific
-*.log
+# Temporary files
 *.tmp
-temp/
-logs/
-steamcmd/
-
-# User data
-.l4d2_mod_manager_config.json
-user_data.json
-
-# Test files
-test_*.py
-*_test.py
-debug_*.py
-
-# Backup files
-*_backup_*.py
-*.backup
+*.temp
+*.log
 *.bak
+*.backup
 
-# Development files
-DEVELOPMENT.md
-TODO.md
-NOTES.md
+# Archives (кроме релизных)
+*.zip
+*.rar
+*.7z
+*.tar.gz
+
+# Images (используем только эмодзи)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.ico
+
+# Fonts (не нужны)
+*.ttf
+*.otf
+*.woff
+*.woff2
+
+# Audio (не нужны)
+*.mp3
+*.wav
+*.ogg
+
+# Build artifacts
+*.exe.config
+*.pdb
