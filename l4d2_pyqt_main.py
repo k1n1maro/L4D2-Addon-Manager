@@ -407,7 +407,7 @@ class BlurDialog(QDialog):
         container_layout.addWidget(icon_label)
         
         # Заголовок - ЕДИНЫЙ СТАНДАРТ
-        title_label = QLabel("L4D2 Addon Manager")
+        title_label = QLabel("L4D2 Addon Manager v1.0.0")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
         container_layout.addWidget(title_label)
@@ -3457,7 +3457,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(100, self.show_welcome)
     
     def setup_ui(self):
-        self.setWindowTitle("L4D2 Addon Manager")
+        self.setWindowTitle("L4D2 Addon Manager v1.0.0")
         self.setFixedSize(1000, 700)
         
         # Центральный виджет
@@ -3489,7 +3489,7 @@ class MainWindow(QMainWindow):
         h_layout.addSpacing(15)
         
         # Логотип (минималистичный)
-        logo = QLabel("L4D2 Addon Manager")
+        logo = QLabel("L4D2 Addon Manager v1.0.0")
         logo.setObjectName("headerTitle")
         h_layout.addWidget(logo)
         
