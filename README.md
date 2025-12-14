@@ -26,7 +26,6 @@
 - **Steam Workshop** - Полная поддержка официальных аддонов из мастерской
 - **Пиратские версии** - Работает с любыми версиями игры L4D2
 - **Автообновления** - Программа сама проверяет и устанавливает обновления
-- **Современный интерфейс** - Красивый дизайн с анимациями и темной темой
 - **Быстрый поиск** - Находите нужные моды по названию
 - **Статистика модов** - Информация о размере и статусе каждого аддона
 
@@ -35,7 +34,6 @@
 - **Steam Workshop** - Full support for official workshop addons
 - **Pirated versions** - Works with any L4D2 game versions
 - **Auto-updates** - Program automatically checks and installs updates
-- **Modern interface** - Beautiful design with animations and dark theme
 - **Quick search** - Find needed mods by name
 - **Mod statistics** - Information about size and status of each addon
 
@@ -71,9 +69,6 @@
 ## 📥 Скачать EXE / Download EXE
 
 [![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.2.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.2.0.exe)
-
-**🇷🇺 Размер:** ~50MB | **Установка:** Не требуется  
-**🇺🇸 Size:** ~50MB | **Installation:** Not required
 
 </div>
 
