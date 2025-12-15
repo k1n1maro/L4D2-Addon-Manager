@@ -2,7 +2,10 @@
 """
 L4D2 Mod Manager - PyQt6 Professional Edition
 С анимациями, blur эффектами и современным дизайном
+Version 1.3.0 - Enhanced Edition
 """
+
+VERSION = "1.3.0"
 
 import sys
 import json
@@ -73,6 +76,43 @@ def get_resource_path(filename):
     
     # Если все еще не найден, возвращаем оригинальный путь
     return base_path / filename
+
+
+class IconLoadWorker(QThread):
+    """Worker thread для асинхронной загрузки иконок"""
+    icon_loaded = pyqtSignal(QPixmap)  # загруженная иконка
+    
+    def __init__(self, url, cache_path=None):
+        super().__init__()
+        self.url = url
+        self.cache_path = cache_path
+    
+    def run(self):
+        """Загружает иконку в фоне"""
+        try:
+            from urllib.request import urlopen
+            # Уменьшенный таймаут для быстрой загрузки
+            data = urlopen(self.url, timeout=1.5).read()
+            
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            
+            if not pixmap.isNull():
+                # Сохраняем в кэш если указан путь
+                if self.cache_path:
+                    try:
+                        pixmap.save(str(self.cache_path), "JPG", 85)  # Сжатие 85%
+                    except:
+                        pass  # Игнорируем ошибки кэширования
+                
+                self.icon_loaded.emit(pixmap)
+            else:
+                # Пустой pixmap если не удалось загрузить
+                self.icon_loaded.emit(QPixmap())
+                
+        except Exception as e:
+            # Пустой pixmap при ошибке
+            self.icon_loaded.emit(QPixmap())
 
 
 class AddonScanWorker(QThread):
@@ -154,9 +194,10 @@ class SteamInfoWorker(QThread):
     progress_updated = pyqtSignal(int, str)  # progress, status
     info_loaded = pyqtSignal(list)  # обновленный список аддонов
     
-    def __init__(self, addons):
+    def __init__(self, addons, workshop_path=None):
         super().__init__()
         self.addons = addons
+        self.workshop_path = workshop_path
         
     def run(self):
         """Выполняется в отдельном потоке"""
@@ -165,82 +206,125 @@ class SteamInfoWorker(QThread):
                 self.info_loaded.emit(self.addons)
                 return
             
+            # Сначала пытаемся получить информацию из локальных файлов
+            self.progress_updated.emit(45, "Поиск локальной информации об аддонах...")
+            self.load_local_addon_info()
+            
             self.progress_updated.emit(50, get_text("loading_steam_info"))
             
-            # Формируем запрос для всех аддонов
+            # Обрабатываем аддоны по частям для избежания лимитов Steam API
             addon_ids = [addon['id'] for addon in self.addons]
             total = len(addon_ids)
+            max_batch_size = 30  # Уменьшаем размер батча для надежности
             
-            # Ограничиваем количество аддонов в одном запросе (Steam API может не справиться с большими запросами)
-            max_batch_size = 50
-            if len(addon_ids) > max_batch_size:
-                addon_ids = addon_ids[:max_batch_size]
-                self.progress_updated.emit(55, get_text("processing_first_addons", count=max_batch_size))
+            print(f"📊 Всего аддонов для обработки: {total}")
+            print(f"📦 Размер батча: {max_batch_size}")
             
-            # Формируем POST данные
-            post_data = {'itemcount': len(addon_ids)}
-            for i, addon_id in enumerate(addon_ids):
-                post_data[f'publishedfileids[{i}]'] = addon_id
+            all_processed_ids = set()
             
-            # Кодируем данные
-            import urllib.parse
-            data = urllib.parse.urlencode(post_data).encode('utf-8')
-            
-            self.progress_updated.emit(60, get_text("sending_steam_request"))
-            
-            # Делаем запрос с увеличенным таймаутом и обработкой ошибок
-            try:
-                response = urlopen(STEAM_API_URL, data=data, timeout=15)
-                result = json.loads(response.read().decode('utf-8'))
-                self.progress_updated.emit(70, get_text("processing_steam_response"))
-            except Exception as api_error:
-                print(f"Ошибка Steam API запроса: {api_error}")
-                self.progress_updated.emit(90, get_text("steam_api_unavailable"))
+            # Обрабатываем аддоны по частям
+            for batch_start in range(0, len(addon_ids), max_batch_size):
+                batch_end = min(batch_start + max_batch_size, len(addon_ids))
+                batch_ids = addon_ids[batch_start:batch_end]
+                batch_num = (batch_start // max_batch_size) + 1
+                total_batches = (len(addon_ids) + max_batch_size - 1) // max_batch_size
                 
-                # Устанавливаем базовые названия для всех аддонов
-                for addon in self.addons:
-                    if not addon.get('name') or addon.get('name') == 'Loading...':
-                        addon['name'] = f"Addon {addon['id']}"
-                        addon['description'] = "Steam Workshop addon (details unavailable)"
-                        addon['preview_url'] = ''
+                print(f"🔄 Обработка батча {batch_num}/{total_batches} ({len(batch_ids)} аддонов)")
+                self.progress_updated.emit(
+                    50 + int(batch_start / total * 40), 
+                    f"Обработка батча {batch_num}/{total_batches}..."
+                )
                 
-                # Возвращаем аддоны с базовыми названиями
-                self.info_loaded.emit(self.addons)
-                return
-            
-            if result.get('response', {}).get('publishedfiledetails'):
-                details = result['response']['publishedfiledetails']
+                # Формируем POST данные для текущего батча
+                post_data = {'itemcount': len(batch_ids)}
+                for i, addon_id in enumerate(batch_ids):
+                    post_data[f'publishedfileids[{i}]'] = addon_id
                 
-                for idx, detail in enumerate(details):
-                    addon_id = detail.get('publishedfileid')
-                    result_code = detail.get('result', 0)
+                # Кодируем данные
+                import urllib.parse
+                data = urllib.parse.urlencode(post_data).encode('utf-8')
+                
+                # Делаем запрос для текущего батча
+                try:
+                    response = urlopen(STEAM_API_URL, data=data, timeout=10)
+                    result = json.loads(response.read().decode('utf-8'))
                     
-                    if result_code == 1:  # Success
-                        title = detail.get('title', get_text("addon_default_name", id=addon_id))
-                        description = detail.get('description', '')
-                        preview_url = detail.get('preview_url', '')
+                    if result.get('response', {}).get('publishedfiledetails'):
+                        details = result['response']['publishedfiledetails']
+                        print(f"📊 Батч {batch_num}: Steam API вернул данные для {len(details)} аддонов")
                         
-                        # Очищаем BBCode из описания
-                        description = self.clean_bbcode(description)
-                        
-                        # Обновляем данные аддона
-                        for addon in self.addons:
-                            if addon['id'] == addon_id:
-                                addon['name'] = title
-                                addon['description'] = description[:150] + '...' if len(description) > 150 else description
-                                addon['preview_url'] = preview_url
-                                break
+                        # Обрабатываем результаты батча
+                        for detail in details:
+                            addon_id = detail.get('publishedfileid')
+                            result_code = detail.get('result', 0)
+                            all_processed_ids.add(addon_id)
+                            
+                            if result_code == 1:  # Success
+                                title = detail.get('title', f'Аддон {addon_id}')
+                                description = detail.get('description', '')
+                                preview_url = detail.get('preview_url', '')
+                                
+                                print(f"✅ Батч {batch_num}: Успешно загружен {addon_id}: {title}")
+                                
+                                # Очищаем BBCode из описания
+                                description = self.clean_bbcode(description)
+                                
+                                # Обновляем данные аддона
+                                for addon in self.addons:
+                                    if addon['id'] == addon_id:
+                                        addon['name'] = title
+                                        addon['description'] = description[:150] + '...' if len(description) > 150 else description
+                                        addon['preview_url'] = preview_url
+                                        break
+                            else:
+                                # Аддон недоступен в Steam
+                                print(f"❌ Батч {batch_num}: Аддон {addon_id} недоступен (код: {result_code})")
+                                for addon in self.addons:
+                                    if addon['id'] == addon_id:
+                                        addon['name'] = f"Недоступный аддон {addon_id}"
+                                        addon['description'] = "Аддон удален или приватный"
+                                        addon['preview_url'] = ''
+                                        break
                     else:
-                        # Аддон недоступен
-                        for addon in self.addons:
-                            if addon['id'] == addon_id:
-                                addon['name'] = get_text("addon_unavailable", id=addon_id)
-                                addon['description'] = get_text("addon_removed_description")
-                                break
-                    
-                    # Обновляем прогресс
-                    progress = 50 + int((idx + 1) / total * 40)
-                    self.progress_updated.emit(progress, get_text("loaded_progress", current=idx + 1, total=total))
+                        print(f"⚠️ Батч {batch_num}: Steam API не вернул данные")
+                        
+                except Exception as batch_error:
+                    print(f"❌ Ошибка обработки батча {batch_num}: {batch_error}")
+                    # Продолжаем обработку следующих батчей
+                    continue
+                
+                # Небольшая пауза между батчами
+                import time
+                time.sleep(0.2)  # Уменьшили паузу
+            
+            # Обрабатываем аддоны, которые не были возвращены Steam API во всех батчах
+            print(f"🔍 Проверка необработанных аддонов...")
+            print(f"📊 Всего обработано Steam API: {len(all_processed_ids)} из {total}")
+            
+            unprocessed_count = 0
+            for addon in self.addons:
+                if addon['id'] not in all_processed_ids:
+                    unprocessed_count += 1
+                    print(f"⚠️ Аддон {addon['id']} не был обработан Steam API")
+                    if not addon.get('name') or addon.get('name') == 'Loading...':
+                        # Используем локальную информацию если есть
+                        if addon.get('local_preview'):
+                            addon['name'] = f"Локальный аддон {addon['id']}"
+                            addon['description'] = "Аддон установлен локально"
+                            print(f"📁 Установлен как локальный: {addon['id']}")
+                        else:
+                            addon['name'] = f"Неизвестный аддон {addon['id']}"
+                            addon['description'] = "Информация недоступна"
+                            print(f"❓ Установлен как неизвестный: {addon['id']}")
+                        addon['preview_url'] = ''
+            
+            print(f"📊 Итого необработанных: {unprocessed_count}")
+            
+            # Пытаемся загрузить точные названия для необработанных аддонов
+            if unprocessed_count > 0 and unprocessed_count <= 10:  # Только если их немного
+                print(f"🔍 Попытка загрузить точные названия для {unprocessed_count} необработанных аддонов...")
+                self.progress_updated.emit(90, f"Загрузка названий для {unprocessed_count} аддонов...")
+                self.fetch_individual_addon_names(all_processed_ids)
             
             self.progress_updated.emit(95, get_text("updating_interface"))
             self.info_loaded.emit(self.addons)
@@ -251,13 +335,127 @@ class SteamInfoWorker(QThread):
             # Устанавливаем базовые названия для всех аддонов
             for addon in self.addons:
                 if not addon.get('name') or addon.get('name') == 'Loading...':
-                    addon['name'] = f"Addon {addon['id']}"
-                    addon['description'] = "Steam Workshop addon (details unavailable)"
+                    # Если есть локальная информация, используем её
+                    if addon.get('local_preview'):
+                        addon['name'] = f"Локальный аддон {addon['id']}"
+                        addon['description'] = "Аддон установлен локально"
+                    else:
+                        addon['name'] = f"Аддон {addon['id']}"
+                        addon['description'] = "Steam Workshop аддон (информация недоступна)"
                     addon['preview_url'] = ''
             
             # Возвращаем аддоны как есть, даже если произошла ошибка
             self.info_loaded.emit(self.addons)
     
+    def load_local_addon_info(self):
+        """Пытается загрузить информацию об аддонах из локальных файлов"""
+        print(f"🔍 Загрузка локальной информации для {len(self.addons)} аддонов")
+        if not self.workshop_path:
+            print("❌ Workshop path не установлен")
+            return
+            
+        for addon in self.addons:
+            addon_id = addon['id']
+            addon_folder = self.workshop_path / addon_id
+            
+            if addon_folder.exists() and addon_folder.is_dir():
+                # Ищем файлы с информацией об аддоне
+                info_files = ['addoninfo.txt', 'info.txt', 'description.txt']
+                
+                for info_file in info_files:
+                    info_path = addon_folder / info_file
+                    if info_path.exists():
+                        try:
+                            with open(info_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                                
+                            # Пытаемся извлечь название из содержимого
+                            name_match = re.search(r'"?(?:title|name)"?\s*"([^"]+)"', content, re.IGNORECASE)
+                            if name_match:
+                                addon['name'] = name_match.group(1)
+                                addon['description'] = f"Локальный аддон: {addon['name']}"
+                                break
+                                
+                            # Если не нашли в формате ключ-значение, берем первую строку
+                            lines = content.strip().split('\n')
+                            if lines and len(lines[0].strip()) > 3:
+                                addon['name'] = lines[0].strip()[:50]  # Ограничиваем длину
+                                addon['description'] = f"Локальный аддон: {addon['name']}"
+                                break
+                                
+                        except Exception as e:
+                            print(f"Ошибка чтения {info_path}: {e}")
+                            continue
+                
+                # Ищем изображения превью в папке аддона
+                preview_files = ['preview.jpg', 'preview.png', 'thumb.jpg', 'thumb.png', 'icon.jpg', 'icon.png']
+                for preview_file in preview_files:
+                    preview_path = addon_folder / preview_file
+                    if preview_path.exists():
+                        addon['local_preview'] = str(preview_path)
+                        break
+
+    def fetch_individual_addon_names(self, processed_ids):
+        """Загружает названия для необработанных аддонов индивидуально"""
+        unprocessed_addons = [addon for addon in self.addons if addon['id'] not in processed_ids]
+        
+        for i, addon in enumerate(unprocessed_addons):
+            if addon.get('name') and 'Loading...' not in addon.get('name', ''):
+                continue  # Уже есть название
+                
+            addon_id = addon['id']
+            
+            try:
+                # Формируем запрос для одного аддона
+                post_data = {
+                    'itemcount': 1,
+                    'publishedfileids[0]': addon_id
+                }
+                
+                import urllib.parse
+                data = urllib.parse.urlencode(post_data).encode('utf-8')
+                response = urlopen(STEAM_API_URL, data=data, timeout=5)
+                result = json.loads(response.read().decode('utf-8'))
+                
+                if result.get('response', {}).get('publishedfiledetails'):
+                    detail = result['response']['publishedfiledetails'][0]
+                    result_code = detail.get('result', 0)
+                    
+                    if result_code == 1:  # Success
+                        title = detail.get('title', f'Аддон {addon_id}')
+                        description = detail.get('description', '')
+                        preview_url = detail.get('preview_url', '')
+                        
+                        pass  # Убрали сообщение для ускорения
+                        
+                        # Очищаем BBCode из описания
+                        description = self.clean_bbcode(description)
+                        
+                        # Обновляем данные аддона
+                        addon['name'] = title
+                        addon['description'] = description[:150] + '...' if len(description) > 150 else description
+                        addon['preview_url'] = preview_url
+                    else:
+                        pass  # Убрали сообщение для ускорения
+                        if result_code == 9:
+                            addon['name'] = f"Удаленный аддон {addon_id}"
+                            addon['description'] = "Аддон удален из Steam Workshop"
+                        elif result_code == 17:
+                            addon['name'] = f"Приватный аддон {addon_id}"
+                            addon['description'] = "Аддон приватный или ограничен"
+                        else:
+                            addon['name'] = f"Недоступный аддон {addon_id}"
+                            addon['description'] = f"Ошибка Steam API (код: {result_code})"
+                        addon['preview_url'] = ''
+                
+                # Небольшая пауза между запросами
+                if i < len(unprocessed_addons) - 1:
+                    import time
+                    time.sleep(0.1)  # Уменьшили паузу
+                    
+            except Exception as e:
+                continue  # Тихо пропускаем ошибки для ускорения
+
     def clean_bbcode(self, text):
         """Удаляет BBCode теги из текста"""
         # Удаляем все BBCode теги
@@ -475,10 +673,7 @@ class BlurDialog(QDialog):
         import webbrowser
         webbrowser.open("https://steamcommunity.com/id/kinimaro/")
     
-    def open_telegram(self):
-        """Открывает Telegram профиль автора"""
-        import webbrowser
-        webbrowser.open("https://t.me/angel_its_me")
+
     
     def setup_ui(self):
         # Увеличенный размер диалога чтобы все помещалось
@@ -2219,6 +2414,7 @@ class AnimatedCard(QFrame):
         self.parent_window = parent
         self.setup_ui()
         self.setup_hover_animation()
+        self.setup_context_menu()
     
     def setup_ui(self):
         self.setObjectName("modCard")
@@ -2237,11 +2433,11 @@ class AnimatedCard(QFrame):
         # Устанавливаем placeholder или загружаем иконку
         if self.addon.get('preview_url'):
             self.load_icon(self.addon['preview_url'])
+        elif self.addon.get('local_preview'):
+            self.load_local_icon(self.addon['local_preview'])
         else:
-            # Placeholder - минималистичная иконка
-            self.icon_label.setText("◯")
-            self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.icon_label.setStyleSheet("font-size: 40px; color: #3498db; border-radius: 10px;")
+            # Placeholder - более информативная иконка
+            self.set_placeholder_icon()
         
         layout.addWidget(self.icon_label)
         
@@ -2353,21 +2549,126 @@ class AnimatedCard(QFrame):
                 break
     
     def load_icon(self, url):
-        """Загружает иконку из URL"""
+        """Загружает иконку из URL с кэшированием"""
+        # Сначала устанавливаем placeholder
+        self.set_placeholder_icon()
+        
+        # Запускаем асинхронную загрузку
+        self.start_async_icon_loading(url)
+    
+    def start_async_icon_loading(self, url):
+        """Запускает асинхронную загрузку иконки"""
+        # Проверяем кэш
+        cache_path = self.get_icon_cache_path(url)
+        if cache_path and cache_path.exists():
+            # Загружаем из кэша
+            self.load_cached_icon(cache_path)
+            return
+        
+        # Создаем worker для загрузки
+        self.icon_worker = IconLoadWorker(url, cache_path)
+        self.icon_worker.icon_loaded.connect(self.on_icon_loaded)
+        self.icon_worker.start()
+    
+    def get_icon_cache_path(self, url):
+        """Получает путь к кэшированной иконке"""
         try:
-            from urllib.request import urlopen
-            data = urlopen(url, timeout=3).read()
-            pixmap = QPixmap()
-            pixmap.loadFromData(data)
-            
+            import hashlib
+            # Создаем хэш от URL для имени файла
+            url_hash = hashlib.md5(url.encode()).hexdigest()
+            cache_dir = Path.home() / ".l4d2_icon_cache"
+            cache_dir.mkdir(exist_ok=True)
+            return cache_dir / f"{url_hash}.jpg"
+        except:
+            return None
+    
+    def load_cached_icon(self, cache_path):
+        """Загружает иконку из кэша"""
+        try:
+            pixmap = QPixmap(str(cache_path))
+            if not pixmap.isNull():
+                scaled = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                self.icon_label.setPixmap(scaled)
+                self.icon_label.setStyleSheet("border-radius: 10px;")
+                return True
+        except Exception as e:
+            print(f"Ошибка загрузки из кэша: {e}")
+        return False
+    
+    def on_icon_loaded(self, pixmap):
+        """Вызывается когда иконка загружена асинхронно"""
+        if not pixmap.isNull():
+            scaled = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+            self.icon_label.setPixmap(scaled)
+            self.icon_label.setStyleSheet("border-radius: 10px;")
+    
+    def load_local_icon(self, file_path):
+        """Загружает локальную иконку из файла"""
+        try:
+            pixmap = QPixmap(file_path)
             if not pixmap.isNull():
                 # Масштабируем и применяем скругление
                 scaled = pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
                 self.icon_label.setPixmap(scaled)
                 self.icon_label.setStyleSheet("border-radius: 10px;")
+            else:
+                self.set_placeholder_icon()
         except Exception as e:
-            # Если не удалось загрузить, оставляем placeholder
-            print(f"Ошибка загрузки иконки: {e}")
+            print(f"Ошибка загрузки локальной иконки: {e}")
+            self.set_placeholder_icon()
+    
+    def set_placeholder_icon(self):
+        """Устанавливает улучшенный placeholder для аддона"""
+        addon_id = self.addon.get('id', 'unknown')
+        addon_name = self.addon.get('name', '')
+        
+        # Создаем красивый placeholder с градиентом
+        pixmap = QPixmap(80, 80)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Выбираем цвет в зависимости от типа аддона
+        if "Недоступный" in addon_name:
+            # Красный градиент для недоступных аддонов
+            color1 = QColor(231, 76, 60, 120)   # Красный
+            color2 = QColor(192, 57, 43, 150)   # Темно-красный
+            icon_text = "✕"
+        elif "Локальный" in addon_name:
+            # Зеленый градиент для локальных аддонов
+            color1 = QColor(46, 204, 113, 120)  # Зеленый
+            color2 = QColor(39, 174, 96, 150)   # Темно-зеленый
+            icon_text = "📁"
+        elif "Неизвестный" in addon_name:
+            # Оранжевый градиент для неизвестных аддонов
+            color1 = QColor(230, 126, 34, 120)  # Оранжевый
+            color2 = QColor(211, 84, 0, 150)    # Темно-оранжевый
+            icon_text = "?"
+        else:
+            # Синий градиент по умолчанию
+            color1 = QColor(52, 152, 219, 120)  # Синий
+            color2 = QColor(41, 128, 185, 150)  # Темно-синий
+            icon_text = "?"
+        
+        # Градиентный фон
+        gradient = QLinearGradient(0, 0, 80, 80)
+        gradient.setColorAt(0, color1)
+        gradient.setColorAt(1, color2)
+        
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(0, 0, 80, 80, 10, 10)
+        
+        # Иконка в центре
+        painter.setPen(QPen(QColor(255, 255, 255, 200), 2))
+        painter.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, icon_text)
+        
+        painter.end()
+        
+        self.icon_label.setPixmap(pixmap)
+        self.icon_label.setStyleSheet("border-radius: 10px;")
     
     def setup_hover_animation(self):
         """Настройка hover анимации - легкое увеличение"""
@@ -2438,9 +2739,148 @@ class AnimatedCard(QFrame):
             
             # Обновляем виджет
             self.update()
-            
         except Exception as e:
-            print(f"❌ Error resetting card state: {e}")
+            print(f"Ошибка сброса состояния карточки: {e}")
+    
+    def setup_context_menu(self):
+        """Настройка контекстного меню для карточки аддона"""
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+    
+    def show_context_menu(self, position):
+        """Показывает контекстное меню"""
+        menu = QMenu(self)
+        
+        # Действие для редактирования названия
+        edit_name_action = menu.addAction("✏️ Редактировать название")
+        edit_name_action.triggered.connect(self.edit_addon_name)
+        
+        # Действие для сброса к оригинальному названию
+        if self.addon.get('original_name'):
+            reset_name_action = menu.addAction("🔄 Восстановить оригинальное название")
+            reset_name_action.triggered.connect(self.reset_addon_name)
+        
+        menu.addSeparator()
+        
+        # Действие для открытия папки аддона
+        open_folder_action = menu.addAction("📁 Открыть папку аддона")
+        open_folder_action.triggered.connect(self.open_addon_folder)
+        
+        # Действие для открытия в Steam Workshop
+        open_steam_action = menu.addAction("🌐 Открыть в Steam Workshop")
+        open_steam_action.triggered.connect(self.open_in_steam)
+        
+        # Показываем меню
+        menu.exec(self.mapToGlobal(position))
+    
+    def edit_addon_name(self):
+        """Открывает диалог редактирования названия аддона"""
+        current_name = self.addon.get('name', f"Аддон {self.addon['id']}")
+        
+        # Сохраняем оригинальное название если еще не сохранено
+        if not self.addon.get('original_name'):
+            self.addon['original_name'] = current_name
+        
+        text, ok = QInputDialog.getText(
+            self, 
+            "Редактировать название аддона",
+            f"Введите новое название для аддона {self.addon['id']}:",
+            QLineEdit.EchoMode.Normal,
+            current_name
+        )
+        
+        if ok and text.strip():
+            # Обновляем название аддона
+            self.addon['name'] = text.strip()
+            self.addon['custom_name'] = True
+            
+            # Обновляем отображение
+            self.update_addon_display()
+            
+            # Сохраняем в кэш
+            self.save_custom_name_to_cache()
+    
+    def reset_addon_name(self):
+        """Восстанавливает оригинальное название аддона"""
+        if self.addon.get('original_name'):
+            self.addon['name'] = self.addon['original_name']
+            self.addon['custom_name'] = False
+            
+            # Обновляем отображение
+            self.update_addon_display()
+            
+            # Удаляем из кэша
+            self.remove_custom_name_from_cache()
+    
+    def update_addon_display(self):
+        """Обновляет отображение названия в карточке"""
+        # Находим label с названием и обновляем его
+        title_labels = self.findChildren(QLabel)
+        for label in title_labels:
+            if label.objectName() == "cardTitle":
+                label.setText(self.addon['name'])
+                break
+    
+    def save_custom_name_to_cache(self):
+        """Сохраняет пользовательское название в кэш"""
+        try:
+            cache_file = Path.home() / ".l4d2_addon_names_cache.json"
+            
+            # Загружаем существующий кэш
+            cache = {}
+            if cache_file.exists():
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache = json.load(f)
+            
+            # Добавляем/обновляем название
+            cache[self.addon['id']] = {
+                'name': self.addon['name'],
+                'original_name': self.addon.get('original_name', ''),
+                'timestamp': int(QDateTime.currentSecsSinceEpoch())
+            }
+            
+            # Сохраняем кэш
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            print(f"Ошибка сохранения кэша названий: {e}")
+    
+    def remove_custom_name_from_cache(self):
+        """Удаляет пользовательское название из кэша"""
+        try:
+            cache_file = Path.home() / ".l4d2_addon_names_cache.json"
+            
+            if cache_file.exists():
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache = json.load(f)
+                
+                # Удаляем запись
+                if self.addon['id'] in cache:
+                    del cache[self.addon['id']]
+                
+                # Сохраняем обновленный кэш
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(cache, f, ensure_ascii=False, indent=2)
+                    
+        except Exception as e:
+            print(f"Ошибка удаления из кэша названий: {e}")
+    
+    def open_addon_folder(self):
+        """Открывает папку аддона в проводнике"""
+        if self.parent_window and hasattr(self.parent_window, 'workshop_path'):
+            addon_folder = self.parent_window.workshop_path / self.addon['id']
+            if addon_folder.exists():
+                import subprocess
+                subprocess.Popen(f'explorer "{addon_folder}"')
+            else:
+                QMessageBox.information(self, "Информация", "Папка аддона не найдена")
+    
+    def open_in_steam(self):
+        """Открывает аддон в Steam Workshop"""
+        import webbrowser
+        url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={self.addon['id']}"
+        webbrowser.open(url)
 
 
 class SimpleCopyTooltip(QWidget):
@@ -2852,154 +3292,6 @@ class CustomConfirmDialog(QDialog):
         result = dialog.exec()
         return result == QDialog.DialogCode.Accepted
 
-
-class TelegramCommunityDialog(QDialog):
-    """Диалог приглашения в Telegram сообщество в стиле CustomConfirmDialog"""
-    
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.result_value = False
-        self.parent_widget = parent
-        
-        # Настройка окна
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setModal(True)
-        
-        # Применяем блюр к родительскому окну
-        self.blur_effect = QGraphicsBlurEffect()
-        self.blur_effect.setBlurRadius(0)
-        self.parent_widget.setGraphicsEffect(self.blur_effect)
-        
-        # Анимация блюра
-        self.blur_anim = QPropertyAnimation(self.blur_effect, b"blurRadius")
-        self.blur_anim.setDuration(300)
-        self.blur_anim.setStartValue(0)
-        self.blur_anim.setEndValue(15)
-        self.blur_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        
-        # Создаем UI
-        self.setup_ui()
-        
-        # Анимация появления диалога
-        self.setWindowOpacity(0)
-        self.opacity_anim = QPropertyAnimation(self, b"windowOpacity")
-        self.opacity_anim.setDuration(300)
-        self.opacity_anim.setStartValue(0)
-        self.opacity_anim.setEndValue(1)
-        self.opacity_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        
-        # Показываем с анимацией
-        self.show()
-        self.opacity_anim.start()
-        if self.blur_anim:
-            self.blur_anim.start()
-    
-    def setup_ui(self):
-        # Фиксируем размер диалога - ЕДИНЫЙ СТАНДАРТ
-        self.setFixedSize(650, 520)
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Контейнер без фона (прозрачный)
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(20)
-        container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Иконка Telegram (tg.png залитая синим цветом) - ЕДИНЫЙ СТАНДАРТ 120x120
-        icon_label = QLabel()
-        icon_path = get_resource_path("tg.png")
-        if icon_path.exists():
-            pixmap = QPixmap(str(icon_path))
-            if not pixmap.isNull():
-                # ЕДИНЫЙ СТАНДАРТ: 120x120
-                scaled_pixmap = pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                
-                # Перекрашиваем в синий цвет #3498db
-                colored_pixmap = QPixmap(scaled_pixmap.size())
-                colored_pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(colored_pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-                painter.drawPixmap(0, 0, scaled_pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-                painter.fillRect(colored_pixmap.rect(), QColor(52, 152, 219))  # #3498db
-                painter.end()
-                
-                icon_label.setPixmap(colored_pixmap)
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        container_layout.addWidget(icon_label)
-        
-        # Заголовок - ЕДИНЫЙ СТАНДАРТ
-        title_label = QLabel(get_text("telegram_community_title"))
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("font-size: 20px; font-weight: 600; color: white;")
-        container_layout.addWidget(title_label)
-        
-        # Сообщение - ЕДИНЫЙ СТАНДАРТ
-        message_label = QLabel(get_text("telegram_community_message"))
-        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        message_label.setWordWrap(True)
-        message_label.setMaximumWidth(580)
-        message_label.setStyleSheet("font-size: 13px; color: white; line-height: 1.5;")
-        message_label.setTextFormat(Qt.TextFormat.RichText)
-        container_layout.addWidget(message_label, 0, Qt.AlignmentFlag.AlignCenter)
-        
-        container_layout.addSpacing(10)
-        
-        # Кнопки - ЕДИНЫЙ СТАНДАРТ
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(20)
-        buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Кнопка "Присоединиться"
-        self.join_btn = AnimatedActionButton(get_text("telegram_btn_join"), "#3498db")
-        self.join_btn.setFixedSize(160, 50)
-        self.join_btn.clicked.connect(self.accept_join)
-        buttons_layout.addWidget(self.join_btn)
-        
-        # Кнопка "Позже"
-        self.later_btn = AnimatedActionButton(get_text("telegram_btn_later"), "#7f8c8d")
-        self.later_btn.setFixedSize(120, 50)
-        self.later_btn.clicked.connect(self.reject_join)
-        buttons_layout.addWidget(self.later_btn)
-        
-        container_layout.addLayout(buttons_layout)
-        layout.addWidget(container)
-    
-    def accept_join(self):
-        """Пользователь согласился присоединиться"""
-        self.result_value = True
-        self.close()
-    
-    def reject_join(self):
-        """Пользователь отказался присоединиться"""
-        self.result_value = False
-        self.close()
-    
-    def exec(self):
-        """Переопределяем exec для возврата результата"""
-        super().exec()
-        return self.result_value
-    
-    def closeEvent(self, event):
-        """Убираем блюр при закрытии"""
-        if hasattr(self, 'blur_effect') and self.parent_widget:
-            self.parent_widget.setGraphicsEffect(None)
-        event.accept()
-    
-    def showEvent(self, event):
-        """Центрируем диалог при показе"""
-        super().showEvent(event)
-        if self.parent_widget:
-            parent_rect = self.parent_widget.geometry()
-            self.move(
-                parent_rect.x() + (parent_rect.width() - self.width()) // 2,
-                parent_rect.y() + (parent_rect.height() - self.height()) // 2
-            )
 
 
 class CustomDeleteDialog(QDialog):
@@ -4276,7 +4568,7 @@ class MainWindow(QMainWindow):
                     telegram_btn.setIcon(QIcon(white_pixmap))
                     telegram_btn.setIconSize(QSize(16, 16))  # Пропорциональный размер иконки
             
-            telegram_btn.clicked.connect(self.show_telegram_community_dialog)
+            telegram_btn.clicked.connect(self.open_telegram)
             h_layout.addWidget(telegram_btn)
             
             # Добавляем отступ справа от кнопки Telegram
@@ -5147,14 +5439,10 @@ class MainWindow(QMainWindow):
             icon_type="info"
         )
     
-    def show_telegram_community_dialog(self):
-        """Показывает диалог приглашения в Telegram сообщество"""
-        # Создаем кастомный диалог с кнопками
-        dialog = TelegramCommunityDialog(self)
-        if dialog.exec():
-            # Пользователь нажал "Присоединиться"
-            import webbrowser
-            webbrowser.open("https://t.me/addon_manager")
+    def open_telegram(self):
+        """Открывает Telegram профиль автора"""
+        import webbrowser
+        webbrowser.open("https://t.me/angel_its_me")
         # Если нажал "Позже" - ничего не делаем
     
     def check_daily_donate_reminder(self):
@@ -5170,37 +5458,10 @@ class MainWindow(QMainWindow):
             icon_type="info"
         )
         
-        # После напоминания о донатах показываем приглашение в Telegram (с задержкой)
-        QTimer.singleShot(300, self.check_telegram_community_invitation)
+        # Убрали автоматическое приглашение в Telegram сообщество
     
-    def check_telegram_community_invitation(self):
-        """Показывает приглашение в Telegram сообщество раз в час"""
-        print("📱 check_telegram_community_invitation called - once per hour")
-        
-        import time
-        current_time = time.time()
-        # 1 час = 3600 секунд
-        time_since_last_invitation = current_time - getattr(self, 'last_telegram_invitation', 0)
-        print(f"📱 Telegram invitation check: {time_since_last_invitation} seconds since last (need 3600 for 1h)")
-        
-        # Показываем приглашение если прошло больше часа (или это первый запуск)
-        if time_since_last_invitation >= 3600 or not hasattr(self, 'last_telegram_invitation'):
-            print("📱 Showing Telegram invitation dialog - once per hour")
-            
-            # Обновляем время последнего приглашения
-            self.last_telegram_invitation = current_time
-            self.save_config()
-            
-            # Показываем диалог приглашения
-            dialog = TelegramCommunityDialog(self)
-            if dialog.exec():
-                # Пользователь нажал "Присоединиться"
-                import webbrowser
-                webbrowser.open("https://t.me/addon_manager")
-        else:
-            print(f"📱 Telegram invitation not shown - need to wait {3600 - time_since_last_invitation:.0f} more seconds")
-        
-        # После всех уведомлений показываем элементы интерфейса
+        # Убрали функцию приглашения в Telegram сообщество
+        # Сразу показываем элементы интерфейса
         QTimer.singleShot(200, self.show_interface_after_notifications)
     
     def show_interface_after_notifications(self):
@@ -5233,7 +5494,6 @@ class MainWindow(QMainWindow):
         """Сбрасывает таймеры уведомлений для тестирования (вызывается через консоль)"""
         print("🔄 Resetting notification timers for testing...")
         self.last_donate_reminder = 0
-        self.last_telegram_invitation = 0
         self.save_config()
         print("✅ Notification timers reset. Call check_daily_donate_reminder() to test.")
     
@@ -5247,15 +5507,7 @@ class MainWindow(QMainWindow):
             icon_type="info"
         )
         
-        print("📱 Force showing Telegram invitation...")
-        QTimer.singleShot(1000, lambda: self._force_show_telegram())
-    
-    def _force_show_telegram(self):
-        """Вспомогательный метод для показа Telegram диалога"""
-        dialog = TelegramCommunityDialog(self)
-        if dialog.exec():
-            import webbrowser
-            webbrowser.open("https://t.me/addon_manager")
+        # Убрали принудительный показ Telegram диалога
     
     def browse_folder(self):
         """Выбор папки с анимацией кнопки"""
@@ -6650,7 +6902,7 @@ class MainWindow(QMainWindow):
         self.display_addons()
         
         # Запускаем загрузку информации из Steam в отдельном потоке
-        self.steam_worker = SteamInfoWorker(self.addons)
+        self.steam_worker = SteamInfoWorker(self.addons, self.workshop_path)
         # Проверяем что диалог еще существует перед подключением
         if hasattr(self, 'loading_dialog') and self.loading_dialog:
             self.steam_worker.progress_updated.connect(self.loading_dialog.update_progress)
@@ -6671,6 +6923,9 @@ class MainWindow(QMainWindow):
         """Вызывается когда информация из Steam загружена"""
         print(f"🔄 Steam info loaded for {len(updated_addons)} addons")
         self.addons = updated_addons
+        
+        # Загружаем кэш пользовательских названий
+        self.load_custom_names_cache()
         
         # Перерисовываем карточки с новой информацией
         try:
@@ -9360,11 +9615,7 @@ class MainWindow(QMainWindow):
                     else:
                         self.last_donate_reminder = 0
                     
-                    # Загружаем время последнего приглашения в Telegram
-                    if 'last_telegram_invitation' in config:
-                        self.last_telegram_invitation = config['last_telegram_invitation']
-                    else:
-                        self.last_telegram_invitation = 0
+                    # Убрали загрузку времени последнего приглашения в Telegram
                     
                     # Загружаем время последнего предупреждения об анимациях
                     if 'last_animation_warning' in config:
@@ -9381,11 +9632,9 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print(f"Ошибка загрузки конфига: {e}")
                 self.last_donate_reminder = 0
-                self.last_telegram_invitation = 0
                 self.last_animation_warning = 0
         else:
             self.last_donate_reminder = 0
-            self.last_telegram_invitation = 0
             self.last_animation_warning = 0
     
     def save_config(self):
@@ -9398,9 +9647,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'last_donate_reminder'):
             config['last_donate_reminder'] = self.last_donate_reminder
         
-        # Сохраняем время последнего приглашения в Telegram
-        if hasattr(self, 'last_telegram_invitation'):
-            config['last_telegram_invitation'] = self.last_telegram_invitation
+        # Убрали сохранение времени последнего приглашения в Telegram
         
         # Сохраняем время последнего предупреждения об анимациях
         if hasattr(self, 'last_animation_warning'):
@@ -9425,6 +9672,31 @@ class MainWindow(QMainWindow):
             self.gameinfo_path = self.game_folder / "left4dead2" / "gameinfo.txt"
             self.workshop_path = self.game_folder / "left4dead2" / "addons" / "workshop"
             self.update_status()
+    
+    def load_custom_names_cache(self):
+        """Загружает кэш пользовательских названий аддонов"""
+        try:
+            cache_file = Path.home() / ".l4d2_addon_names_cache.json"
+            
+            if not cache_file.exists():
+                return
+            
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+            
+            # Применяем кэшированные названия к аддонам
+            for addon in self.addons:
+                addon_id = addon['id']
+                if addon_id in cache:
+                    cached_data = cache[addon_id]
+                    addon['name'] = cached_data['name']
+                    addon['original_name'] = cached_data.get('original_name', addon.get('name', ''))
+                    addon['custom_name'] = True
+                    
+            print(f"✅ Загружено {len(cache)} пользовательских названий из кэша")
+            
+        except Exception as e:
+            print(f"❌ Ошибка загрузки кэша названий: {e}")
     
     def auto_detect_paths(self):
         """Автоопределение путей Steam"""

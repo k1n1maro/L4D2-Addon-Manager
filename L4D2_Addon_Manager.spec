@@ -9,9 +9,12 @@ a = Analysis(
         ('*.png', '.'),
         ('sans.ttf', '.'),
         ('modern_updater.py', '.'),
-        ('update_config.py', '.')
+        ('update_config.py', '.'),
+        ('localization.py', '.'),
+        ('language_dialog.py', '.'),
+        ('icon.ico', '.')
     ],
-    hiddenimports=['modern_updater', 'update_config'],
+    hiddenimports=['modern_updater', 'update_config', 'localization', 'language_dialog'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -27,7 +30,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='L4D2_Addon_Manager',
+    name='L4D2_Addon_Manager_v1.3.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -40,5 +43,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='logo.png',
+    icon='icon.ico',
 )
