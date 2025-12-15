@@ -63,27 +63,89 @@ class SteamPoster:
         self.driver.get("https://steamcommunity.com/login/home/")
         
         wait = WebDriverWait(self.driver, 20)
+        time.sleep(3)  # Даём странице загрузиться
         
         # Ввод логина
         print("→ Ввод логина...")
-        username_field = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text']"))
-        )
-        username_field.clear()
-        username_field.send_keys(self.login)
-        time.sleep(1)
+        try:
+            # Пробуем разные селекторы для поля логина
+            username_field = None
+            selectors = [
+                "input[name='username']",
+                "input._2eKVn6gf3WdN1JOlk0jQ1y",
+                "input[type='text']",
+                "input[class*='newlogindialog']"
+            ]
+            
+            for selector in selectors:
+                try:
+                    username_field = wait.until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                    )
+                    break
+                except:
+                    continue
+            
+            if not username_field:
+                raise Exception("Не удалось найти поле логина")
+            
+            username_field.click()
+            username_field.send_keys(self.login)
+            time.sleep(1)
+        except Exception as e:
+            print(f"✗ Ошибка при вводе логина: {e}")
+            return False
         
         # Ввод пароля
         print("→ Ввод пароля...")
-        password_field = self.driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-        password_field.clear()
-        password_field.send_keys(self.password)
-        time.sleep(1)
+        try:
+            password_selectors = [
+                "input[name='password']",
+                "input[type='password']"
+            ]
+            
+            password_field = None
+            for selector in password_selectors:
+                try:
+                    password_field = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    break
+                except:
+                    continue
+            
+            if not password_field:
+                raise Exception("Не удалось найти поле пароля")
+            
+            password_field.click()
+            password_field.send_keys(self.password)
+            time.sleep(1)
+        except Exception as e:
+            print(f"✗ Ошибка при вводе пароля: {e}")
+            return False
         
         # Нажатие кнопки входа
         print("→ Нажатие кнопки Sign In...")
-        sign_in_button = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-        sign_in_button.click()
+        try:
+            button_selectors = [
+                "button[type='submit']",
+                "button._3FRtHDhkXp7Fh2cZu8W-Hq",
+                "button[class*='DialogButton']"
+            ]
+            
+            sign_in_button = None
+            for selector in button_selectors:
+                try:
+                    sign_in_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    break
+                except:
+                    continue
+            
+            if not sign_in_button:
+                raise Exception("Не удалось найти кнопку входа")
+            
+            sign_in_button.click()
+        except Exception as e:
+            print(f"✗ Ошибка при нажатии кнопки входа: {e}")
+            return False
         
         # Ожидание Steam Guard (если требуется)
         print("\n⚠ ВНИМАНИЕ: Если требуется Steam Guard код, введите его вручную!")
