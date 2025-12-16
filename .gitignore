@@ -129,9 +129,9 @@ draft_*.md
 release/
 
 # PNG files (icons and images - removed from repo to reduce size)
-# All PNG files are ignored to keep repository clean
+# All PNG files are ignored except screenshots
 *.png
-screenshots/*.png
+!screenshots/*.png
 
 # Compiled executables (keep only in releases)
 *.exe
