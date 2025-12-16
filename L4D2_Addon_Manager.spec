@@ -30,7 +30,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='L4D2_Addon_Manager_v1.3.0',
+    name='L4D2_Addon_Manager_v1.4.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
