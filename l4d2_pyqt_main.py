@@ -4374,9 +4374,6 @@ class MainWindow(QMainWindow):
         self.apply_dark_styles()  # Применяем только темную тему
         self.load_config()
         
-        # Проверяем обновление с предыдущих версий
-        self.check_version_update()
-        
         # Настраиваем систему обновлений
         try:
             self.setup_updater()
