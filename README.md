@@ -15,7 +15,7 @@
 **🇺🇸 Program for managing mods in Left 4 Dead 2**
 *Turn mods on and off with one click. Works with any game version!*
 
-![Главный интерфейс](screenshots/Screenshot_2.png)
+![Главный интерфейс](screenshots/Screenshot_4.png)
 
 </div>
 
