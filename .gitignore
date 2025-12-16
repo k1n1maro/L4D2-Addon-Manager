@@ -128,34 +128,10 @@ draft_*.md
 # Release files (keep in release/ folder only)
 release/
 
-# PNG files (icons and images - keep only essential UI icons)
-# Uncomment line below to ignore all PNG files except essential ones
-# *.png
-# !add.png
-# !addon.png
-# !alloff.png
-# !allon.png
-# !con.png
-# !folder.png
-# !git.png
-# !heart.png
-# !icon.ico
-# !info.png
-# !lang.png
-# !link.png
-# !logo.png
-# !noadd.png
-# !ques.png
-# !ref.png
-# !settings.png
-# !sort.png
-# !spravka.png
-# !sup.png
-# !tg.png
-# !trash.png
-# !upd.png
-# !x.png
-# !screenshots/*.png
+# PNG files (icons and images - removed from repo to reduce size)
+# All PNG files are ignored to keep repository clean
+*.png
+screenshots/*.png
 
 # Compiled executables (keep only in releases)
 *.exe
