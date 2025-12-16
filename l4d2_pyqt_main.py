@@ -5,7 +5,7 @@ L4D2 Mod Manager - PyQt6 Professional Edition
 Version 1.3.0 - Enhanced Edition
 """
 
-VERSION = "1.4.0"
+VERSION = "1.3.0"
 
 import sys
 import json
