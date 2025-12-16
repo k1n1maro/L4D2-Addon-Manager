@@ -72,7 +72,7 @@
 
 ## 📥 Скачать программу
 
-[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.3.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager_v1.3.0.exe)
+[![Download EXE](https://img.shields.io/badge/💾_СКАЧАТЬ_EXE-v1.3.0-success?style=for-the-badge&logo=download)](https://github.com/k1n1maro/L4D2-Addon-Manager/releases/latest/download/L4D2_Addon_Manager.exe)
 
 </div>
 
