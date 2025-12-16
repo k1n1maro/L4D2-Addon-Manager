@@ -94,9 +94,79 @@ DEVELOPMENT.md
 TODO.md
 NOTES.md
 
+# Documentation that shouldn't be in repo
+ESSENTIAL_FILES.md
+HOW_TO_CLEAN_SAFELY.md
+PROJECT_STRUCTURE.md
+INSTALL.md
+*_GUIDE.md
+*_INSTRUCTIONS.md
+*_NOTES.md
+RELEASE_DESCRIPTION_*.md
+RELEASE_NOTES_*.md
+UPDATE_SYSTEM_READY.md
+GITHUB_RELEASE_FILES.md
+
+# Utility scripts that shouldn't be in repo
+protect_essential_files.py
+check_before_delete.py
+create_cache_for_unprocessed.py
+customize_addon_names.py
+precache_images.py
+simulate_*.py
+test_updater_*.py
+
+# Installation files
+install_and_run.bat
+setup.bat
+run_*.bat
+
+# Temporary markdown files
+temp_*.md
+draft_*.md
+
 # Release files (keep in release/ folder only)
 release/
 
-# PNG files (icons and images - keep only screenshots for README)
-*.png
-!screenshots/*.png
+# PNG files (icons and images - keep only essential UI icons)
+# Uncomment line below to ignore all PNG files except essential ones
+# *.png
+# !add.png
+# !addon.png
+# !alloff.png
+# !allon.png
+# !con.png
+# !folder.png
+# !git.png
+# !heart.png
+# !icon.ico
+# !info.png
+# !lang.png
+# !link.png
+# !logo.png
+# !noadd.png
+# !ques.png
+# !ref.png
+# !settings.png
+# !sort.png
+# !spravka.png
+# !sup.png
+# !tg.png
+# !trash.png
+# !upd.png
+# !x.png
+# !screenshots/*.png
+
+# Compiled executables (keep only in releases)
+*.exe
+!dist/*.exe
+
+# Archive files
+*.zip
+*.rar
+*.7z
+*.tar.gz
+
+# Spec files for old versions
+*_v*.spec
+L4D2_Addon_Manager_v*.spec
