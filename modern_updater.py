@@ -312,10 +312,10 @@ class CustomProgressDialog(QDialog):
         
         container_layout.addSpacing(10)
         
-        # Кнопка отмены (в стиле CustomInfoDialog)
-        from l4d2_pyqt_main import AnimatedActionButton
-        self.cancel_btn = AnimatedActionButton(get_text("update_cancel"), "#3498db")
+        # Кнопка отмены
+        self.cancel_btn = QPushButton(get_text("update_cancel"))
         self.cancel_btn.setFixedSize(140, 50)
+        self.cancel_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 5px; }")
         self.cancel_btn.clicked.connect(self.reject)
         container_layout.addWidget(self.cancel_btn, 0, Qt.AlignmentFlag.AlignCenter)
         
@@ -397,28 +397,37 @@ class StandardUpdateChecker(QObject):
             return False
     
     def show_no_updates_message(self):
-        """Показывает сообщение об отсутствии обновлений через CustomInfoDialog"""
-        from l4d2_pyqt_main import CustomInfoDialog
-        CustomInfoDialog.information(
-            self.parent_widget,
-            get_text("update_no_updates_title"),
-            get_text("update_no_updates_message", version=CURRENT_VERSION),
-            icon_type="success"
-        )
+        """Показывает сообщение об отсутствии обновлений через стандартный диалог"""
+        msg = QMessageBox(self.parent_widget)
+        msg.setWindowTitle(get_text("update_no_updates_title"))
+        msg.setText(get_text("update_no_updates_message", version=CURRENT_VERSION))
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.exec()
     
     def show_error_message(self):
-        """Показывает сообщение об ошибке через CustomInfoDialog"""
-        from l4d2_pyqt_main import CustomInfoDialog
-        CustomInfoDialog.information(
-            self.parent_widget,
-            get_text("update_check_error_title"),
-            get_text("update_check_error_message"),
-            icon_type="error"
-        )
+        """Показывает сообщение об ошибке через стандартный диалог"""
+        msg = QMessageBox(self.parent_widget)
+        msg.setWindowTitle(get_text("update_check_error_title"))
+        msg.setText(get_text("update_check_error_message"))
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.exec()
 
 def show_update_available_dialog(parent, version_info):
-    """Показывает диалог о доступном обновлении через CustomInfoDialog"""
-    from l4d2_pyqt_main import CustomInfoDialog
+    """Показывает диалог о доступном обновлении через стандартный диалог"""
+    # Убираем циклический импорт - используем стандартный QMessageBox
+    
+    new_version = version_info.get('tag_name', 'Unknown')
+    
+    msg = QMessageBox(parent)
+    msg.setWindowTitle("Доступно обновление")
+    msg.setText(f"Доступна новая версия: {new_version}")
+    msg.setInformativeText("Хотите скачать и установить обновление?")
+    msg.setIcon(QMessageBox.Icon.Information)
+    msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+    msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+    
+    result = msg.exec()
+    return result == QMessageBox.StandardButton.Yes
     
     # Формируем информацию о версии
     new_version = version_info.get('tag_name', get_text("unknown"))
@@ -561,17 +570,17 @@ class CustomUpdateConfirmDialog(QDialog):
         buttons_layout.setSpacing(20)
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        from l4d2_pyqt_main import AnimatedActionButton
-        
         # Кнопка "Скачать и установить"
-        self.update_btn = AnimatedActionButton(get_text("update_btn_download"), "#3498db")
+        self.update_btn = QPushButton(get_text("update_btn_download"))
         self.update_btn.setFixedSize(200, 50)
+        self.update_btn.setStyleSheet("QPushButton { background-color: #3498db; color: white; border: none; border-radius: 5px; }")
         self.update_btn.clicked.connect(self.accept_update)
         buttons_layout.addWidget(self.update_btn)
         
         # Кнопка "Позже"
-        self.later_btn = AnimatedActionButton(get_text("update_btn_later"), "#7f8c8d")
+        self.later_btn = QPushButton(get_text("update_btn_later"))
         self.later_btn.setFixedSize(140, 50)
+        self.later_btn.setStyleSheet("QPushButton { background-color: #7f8c8d; color: white; border: none; border-radius: 5px; }")
         self.later_btn.clicked.connect(self.reject_update)
         buttons_layout.addWidget(self.later_btn)
         
@@ -618,13 +627,11 @@ def start_update_process(parent, version_info):
                 break
     
     if not download_url:
-        from l4d2_pyqt_main import CustomInfoDialog
-        CustomInfoDialog.information(
-            parent,
-            get_text("update_error"),
-            get_text("update_no_download_url"),
-            icon_type="error"
-        )
+        msg = QMessageBox(parent)
+        msg.setWindowTitle(get_text("update_error"))
+        msg.setText(get_text("update_no_download_url"))
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.exec()
         return
     
     # Создаем диалог прогресса
@@ -661,23 +668,19 @@ def on_install_completed(progress_dialog, parent):
     """Обработка завершения установки"""
     progress_dialog.close()
     
-    from l4d2_pyqt_main import CustomInfoDialog
-    CustomInfoDialog.information(
-        parent,
-        get_text("update_completed_restart_title"),
-        get_text("update_completed_restart_message"),
-        icon_type="success"
-    )
+    msg = QMessageBox(parent)
+    msg.setWindowTitle(get_text("update_completed_restart_title"))
+    msg.setText(get_text("update_completed_restart_message"))
+    msg.setIcon(QMessageBox.Icon.Information)
+    msg.exec()
 
 
 def on_update_error(progress_dialog, parent, error_message):
     """Обработка ошибки обновления"""
     progress_dialog.close()
     
-    from l4d2_pyqt_main import CustomInfoDialog
-    CustomInfoDialog.information(
-        parent,
-        get_text("update_error_final_title"),
-        get_text("update_error_final_message", error=error_message),
-        icon_type="error"
-    )
+    msg = QMessageBox(parent)
+    msg.setWindowTitle(get_text("update_error_final_title"))
+    msg.setText(get_text("update_error_final_message", error=error_message))
+    msg.setIcon(QMessageBox.Icon.Critical)
+    msg.exec()
